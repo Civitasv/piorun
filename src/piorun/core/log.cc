@@ -1,15 +1,9 @@
 #include "core/log.h"
 
-#include <fstream>
-#include <mutex>
+#include "core/smartptr.h"
 
 namespace pio {
 namespace logger {
-
-namespace {
-std::ofstream logfile;
-std::mutex mt;
-}  // namespace
 
 std::ostream &operator<<(std::ostream &os, const Level &l) {
   switch (l) {
@@ -29,13 +23,14 @@ std::ostream &operator<<(std::ostream &os, const Level &l) {
   return os;
 }
 
-void Setup(const std::string &logpath) { logfile.open(logpath); }
-void Close() { logfile.close(); }
+Ref<Logger> Logger::Create(const std::string &logpath) {
+  return CreateRef<Logger>(logpath);
+}
 
-void Log(Level l, std::string_view msg) {
-  std::lock_guard<std::mutex> lk(mt);
-  if (logfile.is_open()) {
-    logfile << l << ": " << msg << '\n';
+void Logger::Log(Level l, std::string &msg) {
+  std::lock_guard<std::mutex> lk(mt_);
+  if (logfile_.is_open()) {
+    logfile_ << l << ": " << msg << '\n';
   }
 }
 
