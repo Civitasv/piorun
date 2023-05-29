@@ -16,6 +16,11 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY
 )
 # ---------------------------
 
+find_package(yaml-cpp REQUIRED)
+if(yaml-cpp_FOUND)
+    include_directories(${YAML_CPP_INCLUDE_DIRS})
+endif()
+
 add_subdirectory(vendor)
 add_subdirectory(src)
 add_subdirectory(tests)
