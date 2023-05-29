@@ -7,14 +7,17 @@ namespace logger {
 
 std::ostream &operator<<(std::ostream &os, const Level &l) {
   switch (l) {
-    case FATAL:
-      os << "Fatal";
-      break;
-    case ERROR:
-      os << "Error";
+    case INFO:
+      os << "[Info]";
       break;
     case WARNING:
-      os << "Warning";
+      os << "[Warning]";
+      break;
+    case ERROR:
+      os << "[Error]";
+      break;
+    case FATAL:
+      os << "[Fatal]";
       break;
     default:
       break;
@@ -27,7 +30,7 @@ Ref<Logger> Logger::Create(const std::string &logpath) {
   return CreateRef<Logger>(logpath);
 }
 
-void Logger::Log(Level l, std::string &msg) {
+void Logger::Log(Level l, const std::string &msg) {
   std::lock_guard<std::mutex> lk(mt_);
   if (logfile_.is_open()) {
     logfile_ << l << ": " << msg << '\n';

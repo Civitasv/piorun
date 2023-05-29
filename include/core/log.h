@@ -19,19 +19,20 @@ enum Level {
 
 class Logger {
  public:
+  Logger(const std::string& logpath) { logfile_.open(logpath); }
   ~Logger() {
     if (logfile_.is_open()) logfile_.close();
   }
 
   static Ref<Logger> Create(const std::string& logpath);
 
-  inline void Fatal(std::string& msg) { Log(FATAL, msg); }
-  inline void Error(std::string& msg) { Log(ERROR, msg); }
-  inline void Warning(std::string& msg) { Log(WARNING, msg); }
+  inline void Info(const std::string& msg) { Log(INFO, msg); }
+  inline void Warning(const std::string& msg) { Log(WARNING, msg); }
+  inline void Error(const std::string& msg) { Log(ERROR, msg); }
+  inline void Fatal(const std::string& msg) { Log(FATAL, msg); }
 
  private:
-  Logger(const std::string& logpath) { logfile_.open(logpath); }
-  void Log(Level l, std::string& msg);
+  void Log(Level l, const std::string& msg);
 
  private:
   std::ofstream logfile_;
