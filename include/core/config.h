@@ -5,8 +5,8 @@
  * @LastEditTime: 2023-05-29 08:32:39
  * @FilePath: /piorun/include/core/config.h
  */
-#ifndef _PIORUN_CONFIG_H
-#define _PIORUN_CONFIG_H
+#ifndef PIORUN_CORE_CONFIG_H
+#define PIORUN_CORE_CONFIG_H
 
 #include <cxxabi.h>
 #include <yaml-cpp/yaml.h>
@@ -22,23 +22,25 @@
 #include <unordered_set>
 #include <vector>
 
-namespace piorun {
+namespace pio {
+
+namespace config{
 /**
  * @brief 将源格式数据转换为目标格式数据
- * @param SOURCE_TYPE 源格式
- * @param TARGET_TYPE 目标格式
+ * @param SourceType 源格式
+ * @param TargetType 目标格式
  */
-template <typename TARGET_TYPE, typename SOURCE_TYPE>
-TARGET_TYPE TypeCast(const SOURCE_TYPE& value) {
+template <typename TargetType, typename SourceType>
+TargetType TypeCast(const SourceType& value) {
   std::stringstream ss;
-  TARGET_TYPE result;
+  TargetType result;
   if (!(ss << value) || !(ss >> result) || !(ss >> std::ws).eof()) {
     throw std::bad_cast();  // 抛出异常表示转换失败
   }
   return result;
 }
 
-template <class SOURCE_TYPE, class TARGET_TYPE>
+template <typename SourceType, typename TargetType>
 class LexicalCast {
  public:
   /**
@@ -46,15 +48,15 @@ class LexicalCast {
    * @param value 源类型值
    * @return 返回value转换后的目标类型
    */
-  TARGET_TYPE operator()(const SOURCE_TYPE& value) {
-    return TypeCast<TARGET_TYPE>(value);
+  TargetType operator()(const SourceType& value) {
+    return TypeCast<TargetType>(value);
   }
 };
 
 /**
  * @brief 类型转换模板类片特化(YAML String 转换成 std::vector<T>)
  */
-template <class T>
+template <typename T>
 class LexicalCast<std::string, std::vector<T> > {
  public:
   std::vector<T> operator()(const std::string& value) {
@@ -73,7 +75,7 @@ class LexicalCast<std::string, std::vector<T> > {
 /**
  * @brief 类型转换模板类片特化(std::vector<T> 转换成 YAML String)
  */
-template <class T>
+template <typename T>
 class LexicalCast<std::vector<T>, std::string> {
  public:
   std::string operator()(const std::vector<T>& value) {
@@ -90,7 +92,7 @@ class LexicalCast<std::vector<T>, std::string> {
 /**
  * @brief 类型转换模板类片特化(YAML String 转换成 std::list<T>)
  */
-template <class T>
+template <typename T>
 class LexicalCast<std::string, std::list<T> > {
  public:
   std::list<T> operator()(const std::string& value) {
@@ -109,7 +111,7 @@ class LexicalCast<std::string, std::list<T> > {
 /**
  * @brief 类型转换模板类片特化(std::list<T> 转换成 YAML String)
  */
-template <class T>
+template <typename T>
 class LexicalCast<std::list<T>, std::string> {
  public:
   std::string operator()(const std::list<T>& value) {
@@ -126,7 +128,7 @@ class LexicalCast<std::list<T>, std::string> {
 /**
  * @brief 类型转换模板类片特化(YAML String 转换成 std::set<T>)
  */
-template <class T>
+template <typename T>
 class LexicalCast<std::string, std::set<T> > {
  public:
   std::set<T> operator()(const std::string& value) {
@@ -145,7 +147,7 @@ class LexicalCast<std::string, std::set<T> > {
 /**
  * @brief 类型转换模板类片特化(std::set<T> 转换成 YAML String)
  */
-template <class T>
+template <typename T>
 class LexicalCast<std::set<T>, std::string> {
  public:
   std::string operator()(const std::set<T>& value) {
@@ -162,7 +164,7 @@ class LexicalCast<std::set<T>, std::string> {
 /**
  * @brief 类型转换模板类片特化(YAML String 转换成 std::unordered_set<T>)
  */
-template <class T>
+template <typename T>
 class LexicalCast<std::string, std::unordered_set<T> > {
  public:
   std::unordered_set<T> operator()(const std::string& value) {
@@ -181,7 +183,7 @@ class LexicalCast<std::string, std::unordered_set<T> > {
 /**
  * @brief 类型转换模板类片特化(std::unordered_set<T> 转换成 YAML String)
  */
-template <class T>
+template <typename T>
 class LexicalCast<std::unordered_set<T>, std::string> {
  public:
   std::string operator()(const std::unordered_set<T>& value) {
@@ -198,7 +200,7 @@ class LexicalCast<std::unordered_set<T>, std::string> {
 /**
  * @brief 类型转换模板类片特化(YAML String 转换成 std::map<std::string, T>)
  */
-template <class T>
+template <typename T>
 class LexicalCast<std::string, std::map<std::string, T> > {
  public:
   std::map<std::string, T> operator()(const std::string& value) {
@@ -218,7 +220,7 @@ class LexicalCast<std::string, std::map<std::string, T> > {
 /**
  * @brief 类型转换模板类片特化(std::map<std::string, T> 转换成 YAML String)
  */
-template <class T>
+template <typename T>
 class LexicalCast<std::map<std::string, T>, std::string> {
  public:
   std::string operator()(const std::map<std::string, T>& value) {
@@ -236,7 +238,7 @@ class LexicalCast<std::map<std::string, T>, std::string> {
  * @brief 类型转换模板类片特化(YAML String 转换成
  * std::unordered_map<std::string, T>)
  */
-template <class T>
+template <typename T>
 class LexicalCast<std::string, std::unordered_map<std::string, T> > {
  public:
   std::unordered_map<std::string, T> operator()(const std::string& value) {
@@ -257,7 +259,7 @@ class LexicalCast<std::string, std::unordered_map<std::string, T> > {
  * @brief 类型转换模板类片特化(std::unordered_map<std::string, T> 转换成 YAML
  * String)
  */
-template <class T>
+template <typename T>
 class LexicalCast<std::unordered_map<std::string, T>, std::string> {
  public:
   std::string operator()(const std::unordered_map<std::string, T>& value) {
@@ -271,7 +273,7 @@ class LexicalCast<std::unordered_map<std::string, T>, std::string> {
   }
 };
 
-template <class T>
+template <typename T>
 const char* TypeToName() {
   static const char* s_name =
       abi::__cxa_demangle(typeid(T).name(), nullptr, nullptr, nullptr);
@@ -282,8 +284,8 @@ class ConfigVarBase {
  public:
   typedef std::shared_ptr<ConfigVarBase> ptr;
   ConfigVarBase(const std::string& name, const std::string& description = "")
-      : _name(name), _description(description) {
-    std::transform(_name.begin(), _name.end(), _name.begin(), ::tolower);
+      : name_(name), description_(description) {
+    std::transform(name_.begin(), name_.end(), name_.begin(), ::tolower);
   }
 
   /**
@@ -294,12 +296,12 @@ class ConfigVarBase {
   /**
    * @brief 返回配置参数名称
    */
-  const std::string& get_name() const { return _name; }
+  const std::string& get_name() const { return name_; }
 
   /**
    * @brief 返回配置参数的描述
    */
-  const std::string& get_description() const { return _description; }
+  const std::string& get_description() const { return description_; }
 
   /**
    * @brief 转成字符串
@@ -318,9 +320,9 @@ class ConfigVarBase {
 
  protected:
   /// @brief 配置参数的名称
-  std::string _name;
+  std::string name_;
   /// @brief 配置参数的描述
-  std::string _description;
+  std::string description_;
 };
 
 /**
@@ -330,8 +332,8 @@ class ConfigVarBase {
  *          ToStr 从T转换成std::string的仿函数
  *          std::string 为YAML格式的字符串
  */
-template <class T, class FromStr = LexicalCast<std::string, T>,
-          class ToStr = LexicalCast<T, std::string> >
+template <typename T, typename FromStr = LexicalCast<std::string, T>,
+          typename ToStr = LexicalCast<T, std::string> >
 class ConfigVar : public ConfigVarBase {
  public:
   // typedef RWMutex RWMutexType;
@@ -347,7 +349,7 @@ class ConfigVar : public ConfigVarBase {
    */
   ConfigVar(const std::string& name, const T& default_value,
             const std::string& description = "")
-      : ConfigVarBase(name, description), _val(default_value) {}
+      : ConfigVarBase(name, description), value_(default_value) {}
 
   /**
    * @brief 将参数值转换成YAML String
@@ -356,7 +358,7 @@ class ConfigVar : public ConfigVarBase {
   std::string ToString() override {
     try {
       // RWMutexType::ReadLock lock(_mutex);
-      return ToStr()(_val);
+      return ToStr()(value_);
     } catch (std::exception& e) {
     }
     return "";
@@ -379,7 +381,7 @@ class ConfigVar : public ConfigVarBase {
    */
   const T get_value() {
     // RWMutexType::ReadLock lock(_mutex);
-    return _val;
+    return value_;
   }
 
   /**
@@ -389,15 +391,15 @@ class ConfigVar : public ConfigVarBase {
   void set_value(const T& v) {
     {
       // RWMutexType::ReadLock lock(_mutex);
-      if (v == _val) {
+      if (v == value_) {
         return;
       }
       for (auto& i : _cbs) {
-        i.second(_val, v);
+        i.second(value_, v);
       }
     }
     // RWMutexType::WriteLock lock(_mutex);
-    _val = v;
+    value_ = v;
   }
 
   /**
@@ -447,7 +449,7 @@ class ConfigVar : public ConfigVarBase {
 
  private:
   // RWMutexType _mutex;
-  T _val;
+  T value_;
   // 变更回调函数组, uint64_t key,要求唯一，一般可以用hash
   std::map<uint64_t, on_change_cb> _cbs;
 };
@@ -471,7 +473,7 @@ class Config {
    * @return 返回对应的配置参数,如果参数名存在但是类型不匹配则返回nullptr
    * @exception 如果参数名包含非法字符[^0-9a-z_.] 抛出异常 std::invalid_argument
    */
-  template <class T>
+  template <typename T>
   static typename ConfigVar<T>::ptr Lookup(
       const std::string& name, const T& default_value,
       const std::string& description = "") {
@@ -502,7 +504,7 @@ class Config {
    * @param name 配置参数名称
    * @return 返回配置参数名为name的配置参数
    */
-  template <class T>
+  template <typename T>
   static typename ConfigVar<T>::ptr Lookup(const std::string& name) {
     // RWMutexType::ReadLock lock(GetMutex());
     auto it = GetDatas().find(name);
@@ -551,6 +553,8 @@ class Config {
   //   return s_mutex;
   // }
 };
+
+}
 
 }  // namespace piorun
 
