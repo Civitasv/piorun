@@ -1,2 +1,1 @@
-target_sources(piorun PUBLIC log.cc)
-target_sources(piorun PUBLIC config.cc)
+target_sources(piorun PUBLIC log.cc config.cc)
