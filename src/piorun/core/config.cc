@@ -66,7 +66,6 @@ static std::map<std::string, uint64_t> s_file2modifytime;
 // static piorun::Mutex s_mutex;
 
 void Config::LoadFromConfDir(const std::string& path, bool force) {
-  // std::string absoulte_path = sylar::EnvMgr::GetInstance()->getAbsolutePath(path);
   std::vector<std::string> files;
   pio::util::ListAllFile(files, path, ".yml");
 
