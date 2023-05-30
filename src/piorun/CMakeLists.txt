@@ -2,4 +2,6 @@ add_library(piorun piorun.cc)
 
 target_include_directories(piorun PUBLIC ${PROJECT_SOURCE_DIR}/include)
 
+target_link_libraries(piorun PUBLIC yaml-cpp)
+
 add_subdirectory(core)

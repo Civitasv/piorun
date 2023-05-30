@@ -16,10 +16,15 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY
 )
 # ---------------------------
 
-find_package(yaml-cpp REQUIRED)
-if(yaml-cpp_FOUND)
-    include_directories(${YAML_CPP_INCLUDE_DIRS})
-endif()
+include(FetchContent)
+
+FetchContent_Declare(
+    yaml-cpp
+    GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
+    GIT_TAG yaml-cpp-0.7.0
+)
+FetchContent_MakeAvailable(yaml-cpp)
+set(YAML_CPP_BUILD_TESTS OFF)
 
 add_subdirectory(vendor)
 add_subdirectory(src)
