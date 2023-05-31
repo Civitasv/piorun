@@ -22,9 +22,14 @@
 #include <unordered_set>
 #include <vector>
 
+#include "core/log.h"
+
 namespace pio {
 
 namespace config{
+
+auto static logger_ = pio::logger::Logger::Create("piorun_config.log");
+
 /**
  * @brief 将源格式数据转换为目标格式数据
  * @param SourceType 源格式
@@ -360,6 +365,7 @@ class ConfigVar : public ConfigVarBase {
       // RWMutexType::ReadLock lock(_mutex);
       return ToStr()(value_);
     } catch (std::exception& e) {
+      logger_->Error("ConfigVar::ToString exception" + std::string(e.what()));
     }
     return "";
   }
@@ -372,6 +378,7 @@ class ConfigVar : public ConfigVarBase {
     try {
       set_value(FromStr()(val));
     } catch (std::exception& e) {
+      logger_->Error("ConfigVar::FromString exception" + std::string(e.what()));
     }
     return false;
   }
@@ -394,7 +401,7 @@ class ConfigVar : public ConfigVarBase {
       if (v == value_) {
         return;
       }
-      for (auto& i : _cbs) {
+      for (auto& i : cbs_) {
         i.second(value_, v);
       }
     }
@@ -415,7 +422,7 @@ class ConfigVar : public ConfigVarBase {
     static uint64_t s_fun_id = 0;
     // RWMutexType::WriteLock lock(_mutex);
     ++s_fun_id;
-    _cbs[s_fun_id] = cb;
+    cbs_[s_fun_id] = cb;
     return s_fun_id;
   }
 
@@ -425,7 +432,7 @@ class ConfigVar : public ConfigVarBase {
    */
   void DelListener(uint64_t key) {
     // RWMutexType::WriteLock lock(_mutex);
-    _cbs.erase(key);
+    cbs_.erase(key);
   }
 
   /**
@@ -435,8 +442,8 @@ class ConfigVar : public ConfigVarBase {
    */
   on_change_cb GetListener(uint64_t key) {
     // RWMutexType::ReadLock lock(_mutex);
-    auto it = _cbs.find(key);
-    return it == _cbs.end() ? nullptr : it->second;
+    auto it = cbs_.find(key);
+    return it == cbs_.end() ? nullptr : it->second;
   }
 
   /**
@@ -444,14 +451,14 @@ class ConfigVar : public ConfigVarBase {
    */
   void ClearListener() {
     // RWMutexType::WriteLock lock(_mutex);
-    _cbs.clear();
+    cbs_.clear();
   }
 
  private:
   // RWMutexType _mutex;
   T value_;
   // 变更回调函数组, uint64_t key,要求唯一，一般可以用hash
-  std::map<uint64_t, on_change_cb> _cbs;
+  std::map<uint64_t, on_change_cb> cbs_;
 };
 
 /**
@@ -483,13 +490,16 @@ class Config {
       auto tmp = std::dynamic_pointer_cast<ConfigVar<T> >(it->second);
       if (tmp) {
         return tmp;
+        logger_->Info("Lookup name=" + name + "exists");
       } else {
+        logger_->Info("Lookup name=" + name + "exists but type not" + std::string(TypeToName<T>()) + "real_type=" + it->second->GetTypeName() + " " + it->second->ToString());
         return nullptr;
       }
     }
 
     if (name.find_first_not_of("abcdefghikjlmnopqrstuvwxyz._012345678") !=
         std::string::npos) {
+      logger_->Error("Lookup name invalid" + name);
       throw std::invalid_argument(name);
     }
 

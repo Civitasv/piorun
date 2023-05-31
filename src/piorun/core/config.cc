@@ -14,6 +14,7 @@
 namespace pio {
 
 namespace config{
+
 ConfigVarBase::ptr Config::LookupBase(const std::string& name) {
   // RWMutexType::ReadLock lock(GetMutex());
   auto it = GetDatas().find(name);
@@ -25,6 +26,7 @@ static void ListAllMember(
     std::list<std::pair<std::string, const YAML::Node> >& output) {
   if (prefix.find_first_not_of("abcdefghikjlmnopqrstuvwxyz._012345678") !=
       std::string::npos) {
+    logger_->Error("Config invalid name: " + prefix);
     return;
   }
   output.push_back(std::make_pair(prefix, node));
@@ -71,18 +73,20 @@ void Config::LoadFromConfDir(const std::string& path, bool force) {
 
   for(auto& i : files) {
       {
-          struct stat st;
-          lstat(i.c_str(), &st);
-          // pio::Mutex::Lock lock(s_mutex);
-          if(!force && s_file2modifytime[i] == (uint64_t)st.st_mtime) {
-              continue;
-          }
-          s_file2modifytime[i] = st.st_mtime;
+        struct stat st;
+        lstat(i.c_str(), &st);
+        // pio::Mutex::Lock lock(s_mutex);
+        if(!force && s_file2modifytime[i] == (uint64_t)st.st_mtime) {
+            continue;
+        }
+        s_file2modifytime[i] = st.st_mtime;
       }
       try {
           YAML::Node root = YAML::LoadFile(i);
           LoadFromYaml(root);
+          logger_->Info("LoadConfFile file=" + std::string(i) + "ok");
       } catch (...) {
+          logger_->Error("LoadConfFile file=" + std::string(i) + "failed");
       }
   }
 }
