@@ -4,10 +4,10 @@
 
 int main() {
   using namespace pio::logger;
-  auto logger = Logger::Create("piorun_test.log");
+  auto logger = Logger::Create();
 
-  logger->Info("This is a test");
-  logger->Warning("This is a test");
-  logger->Error("This is a test");
-  logger->Fatal("This is a test");
+  logger->Info("This is a test for %s", "info");
+  logger->Warning("This is a test for %s", "warning");
+  logger->Error("This is a test %s", "error");
+  logger->Fatal("This is a test %s", "fatal");
 }
