@@ -88,10 +88,10 @@ class Logger {
     LogWithoutFormat(FATAL, msg...);
   }
 
-  template <typename... T>
-  friend Ref<Logger> operator<<(Ref<Logger> logger, const T&... data) {
+  template <typename T>
+  friend Ref<Logger> operator<<(Ref<Logger> logger, const T& data) {
     std::stringstream ss;
-    logger->Helper(ss, data...);
+    logger->Helper(ss, data);
 
     if (logger->use_file_) {
       fprintf(logger->logfile_, "%s", ss.str().c_str());
