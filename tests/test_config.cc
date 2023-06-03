@@ -1,8 +1,12 @@
-/*
- * @Date: 2023-05-25 04:07:17
- * @LastEditors: jiongpaichengxuyuan 570073523@qq.com
- * @LastEditTime: 2023-05-26 06:12:55
- * @FilePath: /piorun/tests/test_config.cc
+/**
+ * @file test_config.cc
+ * @author jiongpaichengxuyuan (570073523@qq.com)
+ * @brief
+ * @version 0.1
+ * @date 2023-06-03
+ *
+ * @copyright Copyright (c) 2023
+ *
  */
 #include <iostream>
 
@@ -36,7 +40,7 @@ void print_yaml(const YAML::Node& node, int level) {
   }
 }
 
-void test_yaml() {
+void TestYaml() {
   YAML::Node root = YAML::LoadFile("/home/liuzh/src/piorun/bin/conf/log.yml");
   print_yaml(root, 0);
 }
@@ -62,7 +66,7 @@ class Person {
 
 namespace pio {
 
-namespace config{
+namespace config {
 template <>
 class LexicalCast<std::string, Person> {
  public:
@@ -90,19 +94,25 @@ class LexicalCast<Person, std::string> {
   }
 };
 
-pio::config::ConfigVar<Person>::ptr g_person =
+}  // namespace config
+
+}  // namespace pio
+
+static pio::config::ConfigVar<Person>::ptr g_person =
     pio::config::Config::Lookup("class.person", Person(), "system person");
 
-pio::config::ConfigVar<std::map<std::string, Person> >::ptr g_person_map =
-    pio::config::Config::Lookup("class.map", std::map<std::string, Person>(),
-                           "system person");
+static pio::config::ConfigVar<std::map<std::string, Person> >::ptr
+    g_person_map = pio::config::Config::Lookup(
+        "class.map", std::map<std::string, Person>(), "system person");
 
-pio::config::ConfigVar<std::map<std::string, std::vector<Person> > >::ptr
+static pio::config::ConfigVar<std::map<std::string, std::vector<Person> > >::ptr
     g_person_vec_map = pio::config::Config::Lookup(
         "class.vec_map", std::map<std::string, std::vector<Person> >(),
         "system person");
 
-void test_class() {
+static auto s_person = g_person->get_value();
+
+void TestClass() {
   std::cout << "before: " << g_person->get_value().ToString() << " - "
             << g_person->ToString();
 
@@ -127,15 +137,27 @@ void test_class() {
   p2.m_name = "你好";
 
   g_person->set_value(p2);
+  std::map<std::string, Person> p_map;
+  p_map["test"] = p2;
+
+  g_person_map->set_value(p_map);
 
   std::cout << "after: " << g_person->get_value().ToString() << " - "
             << g_person->ToString();
   XX_PM(g_person_map, "class.map after");
   std::cout << "after: " << g_person_vec_map->ToString();
 }
-}
 
-}  // namespace pio
+void TestCallBack() {
+  g_person->AddListener(
+      [](const Person& ov, const Person& nv) { s_person = nv; });
+
+  std::cout << "befor: " << s_person.ToString();
+  Person p3 = Person();
+  p3.m_name = "hello";
+  g_person->set_value(p3);
+  std::cout << "after: " << s_person.ToString();
+}
 
 int main() {
   std::cout << "I'm a test" << '\n';
@@ -155,6 +177,7 @@ int main() {
   //   auto t3 = piorun::LexicalCast<std::unordered_set<int>, std::string>();
   //   s = t3(u_s);
   //   std::cout << s;
-  // test_yaml();
-  pio::config::test_class();
+  TestYaml();
+  // TestClass();
+  // TestCallBack();
 }
