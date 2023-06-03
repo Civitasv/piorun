@@ -1,9 +1,10 @@
+#include <chrono>
 #include <iostream>
 #include <thread>
 
 #include "core/log.h"
 
-void basic_test_with_format() {
+static void test_with_format() {
   using namespace pio::logger;
   auto logger = Logger::Create();
 
@@ -13,7 +14,7 @@ void basic_test_with_format() {
   logger->FatalF("This is a test for %s", "fatal");
 }
 
-void basic_test_without_format() {
+static void test_without_format() {
   using namespace pio::logger;
   auto logger = Logger::Create();
 
@@ -23,23 +24,30 @@ void basic_test_without_format() {
   logger->Fatal("This is a test for ", "fatal");
 }
 
-void test_in_thread() {
+static void test_in_thread() {
   using namespace pio::logger;
   auto logger = Logger::Create();
 
-  auto func = [logger]() {
-    logger->Info(std::this_thread::get_id());
-    logger->InfoF("%s", "This is a test for thread");
+  auto func = [logger](const std::string& name) {
+    for (int i = 0; i < 100; i++) {
+      if (name == "A")
+        std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+      else if (name == "B")
+        std::this_thread::sleep_for(std::chrono::milliseconds(5000));
+
+      logger->Info("This is a test for thread ", name, i);
+    }
   };
 
-  std::thread t1(func);
-  std::thread t2(func);
+  // 应该每三秒输出一次 A，每五秒输出一次 B
+  std::thread t1(func, "A");
+  std::thread t2(func, "B");
 
   t1.join();
   t2.join();
 }
 
-void test_stream_out() {
+static void test_stream_out() {
   using namespace pio::logger;
   auto logger = Logger::Create();
 
@@ -49,4 +57,16 @@ void test_stream_out() {
          << "Out " << 1 << '\n';
 }
 
-int main() { test_stream_out(); }
+static void test_log_mask() {
+  using namespace pio::logger;
+  auto logger = Logger::Create();
+
+  logger->set_mask(Logger::ERROR | Logger::FATAL | Logger::INFO);
+
+  logger->Info("This will show");
+  logger->Warning("This won't show");
+  logger->Error("This will show");
+  logger->Fatal("This will show");
+}
+
+int main() { test_log_mask(); }

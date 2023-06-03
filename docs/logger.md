@@ -157,6 +157,32 @@ void basic_test_without_format() {
 [Fatal] This is a test for fatal
 ```
 
+## 输出级别控制
+
+使用日志掩码控制输出级别，默认情况下，所有级别的日志均会输出。
+
+### API
+
+```cpp
+  void set_mask(uint32_t mask);
+```
+
+### Example
+
+```cpp
+static void test_log_mask() {
+  using namespace pio::logger;
+  auto logger = Logger::Create();
+
+  logger->set_mask(Logger::ERROR | Logger::FATAL | Logger::INFO);
+
+  logger->Info("This will show");
+  logger->Warning("This won't show");
+  logger->Error("This will show");
+  logger->Fatal("This will show");
+}
+```
+
 ## Bonus: 提供流式输出方式
 
 流式输出方式指类似于 `logger << A << B << "TEST" << '\n` 的方式，不同于 `logger->Info` 的是，流式输出方式没有日志的级别设置，只是简单的将用户输入进去的输出到文件或者控制台中。
