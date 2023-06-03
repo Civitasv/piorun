@@ -6,6 +6,7 @@
 #include <mutex>
 #include <ostream>
 #include <sstream>
+#include <string>
 
 #include "smartptr.h"
 
@@ -48,28 +49,87 @@ class Logger {
   static Ref<Logger> Create();
 
   template <typename... T>
-  inline void Info(const char* __restrict__ fmt, const T&... msg) {
-    Log(INFO, fmt, msg...);
+  inline void InfoF(const char* __restrict__ fmt, const T&... msg) {
+    LogWithFormat(INFO, fmt, msg...);
   }
 
   template <typename... T>
-  inline void Warning(const char* __restrict__ fmt, const T&... msg) {
-    Log(WARNING, fmt, msg...);
+  inline void WarningF(const char* __restrict__ fmt, const T&... msg) {
+    LogWithFormat(WARNING, fmt, msg...);
   }
 
   template <typename... T>
-  inline void Error(const char* __restrict__ fmt, const T&... msg) {
-    Log(ERROR, fmt, msg...);
+  inline void ErrorF(const char* __restrict__ fmt, const T&... msg) {
+    LogWithFormat(ERROR, fmt, msg...);
   }
 
   template <typename... T>
-  inline void Fatal(const char* __restrict__ fmt, const T&... msg) {
-    Log(FATAL, fmt, msg...);
+  inline void FatalF(const char* __restrict__ fmt, const T&... msg) {
+    LogWithFormat(FATAL, fmt, msg...);
+  }
+
+  template <typename... T>
+  inline void Info(const T&... msg) {
+    LogWithoutFormat(INFO, msg...);
+  }
+
+  template <typename... T>
+  inline void Warning(const T&... msg) {
+    LogWithoutFormat(WARNING, msg...);
+  }
+
+  template <typename... T>
+  inline void Error(const T&... msg) {
+    LogWithoutFormat(ERROR, msg...);
+  }
+
+  template <typename... T>
+  inline void Fatal(const T&... msg) {
+    LogWithoutFormat(FATAL, msg...);
+  }
+
+  template <typename... T>
+  friend Ref<Logger> operator<<(Ref<Logger> logger, const T&... data) {
+    std::stringstream ss;
+    logger->Helper(ss, data...);
+
+    if (logger->use_file_) {
+      fprintf(logger->logfile_, "%s", ss.str().c_str());
+    } else {
+      printf("%s", ss.str().c_str());
+    }
+
+    return logger;
   }
 
  private:
+  template <typename T0, typename... T>
+  void Helper(std::stringstream& ss, const T0& t0, const T&... msg) {
+    ss << t0;
+    if constexpr (sizeof...(msg) > 0) Helper(ss, msg...);
+  }
+
   template <typename... T>
-  void Log(Level l, const char* __restrict__ fmt, const T&... msg) {
+  void LogWithoutFormat(Level l, const T&... msg) {
+    std::lock_guard<std::mutex> lk(mt_);
+    auto level = LevelToString(l);
+
+    std::stringstream ss;
+    Helper(ss, msg...);
+
+    if (use_file_) {
+      fprintf(logfile_, "%s ", level.c_str());
+      fprintf(logfile_, "%s", ss.str().c_str());
+      fprintf(logfile_, "\n");
+    } else {
+      printf("%s ", level.c_str());
+      printf("%s", ss.str().c_str());
+      printf("\n");
+    }
+  }
+
+  template <typename... T>
+  void LogWithFormat(Level l, const char* __restrict__ fmt, const T&... msg) {
     std::lock_guard<std::mutex> lk(mt_);
     auto level = LevelToString(l);
 
