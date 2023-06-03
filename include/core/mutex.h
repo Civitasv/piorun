@@ -12,7 +12,6 @@
 #ifndef PIORUN_CORE_MUTEX_H_
 #define PIORUN_CORE_MUTEX_H_
 
-#include "piotype.h"
 #include <memory>
 #include <shared_mutex>
 #include <semaphore.h>
@@ -27,7 +26,7 @@ class Semaphore {
    * 
    * @param count 信号量初始计数
    */
-  Semaphore(u32 count = 0);
+  Semaphore(uint32_t count = 0);
 
   /**
    * @brief Destructor
