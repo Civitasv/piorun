@@ -22,13 +22,13 @@ class Logger {
   };
 
  public:
-  Logger() : use_file_(false) {}
-  Logger(const std::string& logpath) : use_file_(true) {
-    logfile_ = fopen(logpath.c_str(), "w");
+  Logger() : mask_(0xFFFFFFFF) { logfile_ = stdout; }
+  Logger(const std::string& logpath) : mask_(0xFFFFFFFF) {
+    logfile_ = fopen(logpath.c_str(), "rw");
   }
 
   ~Logger() {
-    if (use_file_) fclose(logfile_);
+    if (logfile_ != stdout) fclose(logfile_);
   }
 
   /**
@@ -93,14 +93,13 @@ class Logger {
     std::stringstream ss;
     logger->Helper(ss, data);
 
-    if (logger->use_file_) {
-      fprintf(logger->logfile_, "%s", ss.str().c_str());
-    } else {
-      printf("%s", ss.str().c_str());
-    }
+    fprintf(logger->logfile_, "%s", ss.str().c_str());
 
     return logger;
   }
+
+ public:
+  void set_mask(uint32_t mask) { mask_ = mask; }
 
  private:
   template <typename T0, typename... T>
@@ -111,36 +110,28 @@ class Logger {
 
   template <typename... T>
   void LogWithoutFormat(Level l, const T&... msg) {
-    std::lock_guard<std::mutex> lk(mt_);
-    auto level = LevelToString(l);
+    if (l & mask_) {
+      std::lock_guard<std::mutex> lk(mt_);
+      auto level = LevelToString(l);
 
-    std::stringstream ss;
-    Helper(ss, msg...);
+      std::stringstream ss;
+      Helper(ss, msg...);
 
-    if (use_file_) {
       fprintf(logfile_, "%s ", level.c_str());
       fprintf(logfile_, "%s", ss.str().c_str());
       fprintf(logfile_, "\n");
-    } else {
-      printf("%s ", level.c_str());
-      printf("%s", ss.str().c_str());
-      printf("\n");
     }
   }
 
   template <typename... T>
   void LogWithFormat(Level l, const char* __restrict__ fmt, const T&... msg) {
-    std::lock_guard<std::mutex> lk(mt_);
-    auto level = LevelToString(l);
+    if (l & mask_) {
+      std::lock_guard<std::mutex> lk(mt_);
+      auto level = LevelToString(l);
 
-    if (use_file_) {
       fprintf(logfile_, "%s ", level.c_str());
       fprintf(logfile_, fmt, msg...);
       fprintf(logfile_, "\n");
-    } else {
-      printf("%s ", level.c_str());
-      printf(fmt, msg...);
-      printf("\n");
     }
   }
 
@@ -149,8 +140,9 @@ class Logger {
 
  private:
   FILE* logfile_;
-  bool use_file_;
   std::mutex mt_;
+
+  uint32_t mask_;  //< 用于控制输出级别
 };
 }  // namespace logger
 }  // namespace pio
