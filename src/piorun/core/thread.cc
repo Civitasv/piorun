@@ -37,7 +37,7 @@ void Thread::SetCurrentThreadName(const std::string& name) {
 }
 
 Thread::Thread(std::function<void()> cb, const std::string& name)
-    : cb_(cb), thread_name_(name) {
+    : cb_(cb), thread_name_(name), system_id_(-1), thread_(0) {
   if (name.empty()) thread_name_ = "UNDEFINED";
   
   int rt = pthread_create(&thread_, nullptr, &Thread::run, this);

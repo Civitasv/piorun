@@ -9,7 +9,8 @@
  * 
  */
 
-#pragma once
+#ifndef PIORUN_CORE_PIOTYPE_H_
+#define PIORUN_CORE_PIOTYPE_H_
 
 namespace pio {
 
@@ -25,4 +26,6 @@ using u32 = unsigned int;
 using i64 = long long;
 using u64 = unsigned long long;
 
-}
+} // namespace pio
+
+#endif // !PIORUN_CORE_PIOTYPE_H_

@@ -9,7 +9,8 @@
  * 
  */
 
-#pragma once
+#ifndef PIORUN_CORE_MUTEX_H_
+#define PIORUN_CORE_MUTEX_H_
 
 #include "piotype.h"
 #include <memory>
@@ -57,13 +58,13 @@ class SpinLock {
   ~SpinLock() noexcept 
   { pthread_spin_destroy(&locker_); }
 
-  void lock() noexcept 
+  void Lock() noexcept 
   { pthread_spin_lock(&locker_); }
 
-  void unlock() noexcept 
+  void Unlock() noexcept 
   { pthread_spin_unlock(&locker_); }
 
-  bool try_lock() noexcept 
+  bool TryLock() noexcept 
   { return pthread_spin_trylock(&locker_) == 0; }
 
  private:
@@ -75,12 +76,15 @@ class SpinLock {
 class CASLock {
  public:
   CASLock() noexcept {};
-  void lock() noexcept {
+
+  void Lock() noexcept {
     while (flag_.test_and_set(std::memory_order_acquire))
       ;
   }
-  void unlock() noexcept { flag_.clear(std::memory_order_release); }
-  bool try_lock() noexcept {
+  
+  void Unlock() noexcept { flag_.clear(std::memory_order_release); }
+  
+  bool TryLock() noexcept {
     return !flag_.test_and_set(std::memory_order_acquire);
   }
 
@@ -88,4 +92,6 @@ class CASLock {
   std::atomic_flag flag_ = ATOMIC_FLAG_INIT; /*> 原子布尔值 */
 };
 
-}
+} // namespace pio
+
+#endif // !PIORUN_CORE_MUTEX_H_

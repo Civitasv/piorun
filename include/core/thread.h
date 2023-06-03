@@ -9,7 +9,8 @@
  *
  */
 
-#pragma once
+#ifndef PIORUN_CORE_THREAD_H_
+#define PIORUN_CORE_THREAD_H_
 
 #include <functional>
 #include <memory>
@@ -96,11 +97,13 @@ class Thread {
   Thread& operator=(const Thread&) = delete;
 
  private:
-  pid_t system_id_ = -1;     /*> 系统线程标识 */
-  pthread_t thread_ = 0;     /*> pthread标识 */
+  pid_t system_id_;          /*> 系统线程标识 */
+  pthread_t thread_;         /*> pthread标识 */
   std::function<void()> cb_; /*> 线程执行函数 */
   std::string thread_name_;  /*> 线程名称 */
   Semaphore semaphore_;      /*> 信号量 */
 };
 
 }  // namespace pio
+
+#endif // !PIORUN_CORE_THREAD_H_

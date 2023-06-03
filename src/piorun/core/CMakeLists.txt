@@ -1,3 +1,6 @@
-file(GLOB TARGET_SOURCES "*.cc")
-
-target_sources(piorun PUBLIC ${TARGET_SOURCES})
+target_sources(
+    piorun PUBLIC 
+    log.cc
+    mutex.cc
+    thread.cc
+)
