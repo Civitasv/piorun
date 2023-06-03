@@ -1,12 +1,15 @@
-/*
- * @Author: jiongpaichengxuyuan 570073523@qq.com
- * @Date: 2023-05-23 03:31:56
- * @LastEditors: jiongpaichengxuyuan 570073523@qq.com
- * @LastEditTime: 2023-05-29 08:32:39
- * @FilePath: /piorun/include/core/config.h
+/**
+ * @file config.h
+ * @author jiongpaichengxuyuan (570073523@qq.com)
+ * @brief 配置模块
+ * @version 0.1
+ * @date 2023-06-03
+ *
+ * @copyright Copyright (c) 2023
+ *
  */
-#ifndef PIORUN_CORE_CONFIG_H
-#define PIORUN_CORE_CONFIG_H
+#ifndef PIORUN_CORE_CONFIG_H_
+#define PIORUN_CORE_CONFIG_H_
 
 #include <cxxabi.h>
 #include <yaml-cpp/yaml.h>
@@ -15,7 +18,9 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <set>
+#include <shared_mutex>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -23,12 +28,13 @@
 #include <vector>
 
 #include "core/log.h"
+#include "core/smartptr.h"
 
 namespace pio {
 
-namespace config{
+namespace config {
 
-auto static logger_ = pio::logger::Logger::Create("piorun_config.log");
+auto static logger = pio::logger::Logger::Create("piorun_config.log");
 
 /**
  * @brief 将源格式数据转换为目标格式数据
@@ -287,7 +293,7 @@ const char* TypeToName() {
 
 class ConfigVarBase {
  public:
-  typedef std::shared_ptr<ConfigVarBase> ptr;
+  typedef Ref<ConfigVarBase> ptr;
   ConfigVarBase(const std::string& name, const std::string& description = "")
       : name_(name), description_(description) {
     std::transform(name_.begin(), name_.end(), name_.begin(), ::tolower);
@@ -341,8 +347,7 @@ template <typename T, typename FromStr = LexicalCast<std::string, T>,
           typename ToStr = LexicalCast<T, std::string> >
 class ConfigVar : public ConfigVarBase {
  public:
-  // typedef RWMutex RWMutexType;
-  typedef std::shared_ptr<ConfigVar> ptr;
+  typedef Ref<ConfigVar> ptr;
   typedef std::function<void(const T& old_value, const T& new_value)>
       on_change_cb;
 
@@ -362,10 +367,10 @@ class ConfigVar : public ConfigVarBase {
    */
   std::string ToString() override {
     try {
-      // RWMutexType::ReadLock lock(_mutex);
+      std::shared_lock lock(mutex_);
       return ToStr()(value_);
     } catch (std::exception& e) {
-      logger_->Error("ConfigVar::ToString exception" + std::string(e.what()));
+      logger->Error("ConfigVar::ToString exception" + std::string(e.what()));
     }
     return "";
   }
@@ -378,7 +383,7 @@ class ConfigVar : public ConfigVarBase {
     try {
       set_value(FromStr()(val));
     } catch (std::exception& e) {
-      logger_->Error("ConfigVar::FromString exception" + std::string(e.what()));
+      logger->Error("ConfigVar::FromString exception" + std::string(e.what()));
     }
     return false;
   }
@@ -387,7 +392,7 @@ class ConfigVar : public ConfigVarBase {
    * @brief 获取当前参数的值
    */
   const T get_value() {
-    // RWMutexType::ReadLock lock(_mutex);
+    std::shared_lock lock(mutex_);
     return value_;
   }
 
@@ -397,7 +402,7 @@ class ConfigVar : public ConfigVarBase {
    */
   void set_value(const T& v) {
     {
-      // RWMutexType::ReadLock lock(_mutex);
+      std::shared_lock lock(mutex_);
       if (v == value_) {
         return;
       }
@@ -405,7 +410,7 @@ class ConfigVar : public ConfigVarBase {
         i.second(value_, v);
       }
     }
-    // RWMutexType::WriteLock lock(_mutex);
+    std::unique_lock lock(mutex_);
     value_ = v;
   }
 
@@ -420,7 +425,7 @@ class ConfigVar : public ConfigVarBase {
    */
   uint64_t AddListener(on_change_cb cb) {
     static uint64_t s_fun_id = 0;
-    // RWMutexType::WriteLock lock(_mutex);
+    std::unique_lock lock(mutex_);
     ++s_fun_id;
     cbs_[s_fun_id] = cb;
     return s_fun_id;
@@ -431,7 +436,7 @@ class ConfigVar : public ConfigVarBase {
    * @param key 回调函数的唯一id
    */
   void DelListener(uint64_t key) {
-    // RWMutexType::WriteLock lock(_mutex);
+    std::unique_lock lock(mutex_);
     cbs_.erase(key);
   }
 
@@ -441,7 +446,7 @@ class ConfigVar : public ConfigVarBase {
    * @return 如果存在返回对应的回调函数,否则返回nullptr
    */
   on_change_cb GetListener(uint64_t key) {
-    // RWMutexType::ReadLock lock(_mutex);
+    std::shared_lock lock(mutex_);
     auto it = cbs_.find(key);
     return it == cbs_.end() ? nullptr : it->second;
   }
@@ -450,12 +455,12 @@ class ConfigVar : public ConfigVarBase {
    * @brief 清理所有的回调函数
    */
   void ClearListener() {
-    // RWMutexType::WriteLock lock(_mutex);
+    std::unique_lock lock(mutex_);
     cbs_.clear();
   }
 
  private:
-  // RWMutexType _mutex;
+  std::shared_mutex mutex_;
   T value_;
   // 变更回调函数组, uint64_t key,要求唯一，一般可以用hash
   std::map<uint64_t, on_change_cb> cbs_;
@@ -468,7 +473,6 @@ class ConfigVar : public ConfigVarBase {
 class Config {
  public:
   typedef std::unordered_map<std::string, ConfigVarBase::ptr> ConfigVarMap;
-  // typedef RWMutex RWMutexType;
 
   /**
    * @brief 获取/创建对应参数名的配置参数
@@ -484,28 +488,30 @@ class Config {
   static typename ConfigVar<T>::ptr Lookup(
       const std::string& name, const T& default_value,
       const std::string& description = "") {
-    // RWMutexType::WriteLock lock(GetMutex());
-    auto it = GetDatas().find(name);
-    if (it != GetDatas().end()) {
+    std::unique_lock lock(get_mutex());
+    auto it = get_datas().find(name);
+    if (it != get_datas().end()) {
       auto tmp = std::dynamic_pointer_cast<ConfigVar<T> >(it->second);
       if (tmp) {
         return tmp;
-        logger_->Info("Lookup name=" + name + "exists");
+        logger->Info("Lookup name=" + name + "exists");
       } else {
-        logger_->Info("Lookup name=" + name + "exists but type not" + std::string(TypeToName<T>()) + "real_type=" + it->second->GetTypeName() + " " + it->second->ToString());
+        logger->Info("Lookup name=" + name + "exists but type not" +
+                     std::string(TypeToName<T>()) + "real_type=" +
+                     it->second->GetTypeName() + " " + it->second->ToString());
         return nullptr;
       }
     }
 
     if (name.find_first_not_of("abcdefghikjlmnopqrstuvwxyz._012345678") !=
         std::string::npos) {
-      logger_->Error("Lookup name invalid" + name);
+      logger->Error("Lookup name invalid" + name);
       throw std::invalid_argument(name);
     }
 
     typename ConfigVar<T>::ptr v(
         new ConfigVar<T>(name, default_value, description));
-    GetDatas()[name] = v;
+    get_datas()[name] = v;
     return v;
   }
 
@@ -516,9 +522,9 @@ class Config {
    */
   template <typename T>
   static typename ConfigVar<T>::ptr Lookup(const std::string& name) {
-    // RWMutexType::ReadLock lock(GetMutex());
-    auto it = GetDatas().find(name);
-    if (it == GetDatas().end()) {
+    std::shared_lock lock(get_mutex());
+    auto it = get_datas().find(name);
+    if (it == get_datas().end()) {
       return nullptr;
     }
     return std::dynamic_pointer_cast<ConfigVar<T> >(it->second);
@@ -550,22 +556,22 @@ class Config {
   /**
    * @brief 返回所有的配置项
    */
-  static ConfigVarMap& GetDatas() {
-    static ConfigVarMap s_datas;
-    return s_datas;
+  static ConfigVarMap& get_datas() {
+    static ConfigVarMap datas_;
+    return datas_;
   }
 
   /**
-   * @brief 配置项的RWMutex
+   * @brief 配置项的读写锁
    */
-  // static RWMutexType& GetMutex() {
-  //   static RWMutexType s_mutex;
-  //   return s_mutex;
-  // }
+  static std::shared_mutex& get_mutex() {
+    static std::shared_mutex mutex_;
+    return mutex_;
+  }
 };
 
-}
+}  // namespace config
 
-}  // namespace piorun
+}  // namespace pio
 
 #endif

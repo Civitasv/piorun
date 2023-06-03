@@ -1,24 +1,29 @@
-/*
- * @Date: 2023-05-23 03:32:07
- * @LastEditors: jiongpaichengxuyuan 570073523@qq.com
- * @LastEditTime: 2023-05-29 08:31:26
- * @FilePath: /piorun/src/piorun/core/config.cc
+/**
+ * @file config.cc
+ * @author jiongpaichengxuyuan (570073523@qq.com)
+ * @brief
+ * @version 0.1
+ * @date 2023-06-03
+ *
+ * @copyright Copyright (c) 2023
+ *
  */
 #include "core/config.h"
-#include "core/util.h"
 
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "core/util.h"
+
 namespace pio {
 
-namespace config{
+namespace config {
 
 ConfigVarBase::ptr Config::LookupBase(const std::string& name) {
-  // RWMutexType::ReadLock lock(GetMutex());
-  auto it = GetDatas().find(name);
-  return it == GetDatas().end() ? nullptr : it->second;
+  std::shared_lock lock(get_mutex());
+  auto it = get_datas().find(name);
+  return it == get_datas().end() ? nullptr : it->second;
 }
 
 static void ListAllMember(
@@ -26,7 +31,7 @@ static void ListAllMember(
     std::list<std::pair<std::string, const YAML::Node> >& output) {
   if (prefix.find_first_not_of("abcdefghikjlmnopqrstuvwxyz._012345678") !=
       std::string::npos) {
-    logger_->Error("Config invalid name: " + prefix);
+    logger->Error("Config invalid name: " + prefix);
     return;
   }
   output.push_back(std::make_pair(prefix, node));
@@ -65,40 +70,40 @@ void Config::LoadFromYaml(const YAML::Node& root) {
 }
 
 static std::map<std::string, uint64_t> s_file2modifytime;
-// static piorun::Mutex s_mutex;
+static std::mutex s_mutex;
 
 void Config::LoadFromConfDir(const std::string& path, bool force) {
   std::vector<std::string> files;
   pio::util::ListAllFile(files, path, ".yml");
 
-  for(auto& i : files) {
-      {
-        struct stat st;
-        lstat(i.c_str(), &st);
-        // pio::Mutex::Lock lock(s_mutex);
-        if(!force && s_file2modifytime[i] == (uint64_t)st.st_mtime) {
-            continue;
-        }
-        s_file2modifytime[i] = st.st_mtime;
+  for (auto& i : files) {
+    {
+      struct stat st;
+      lstat(i.c_str(), &st);
+      std::lock_guard lock(s_mutex);
+      if (!force && s_file2modifytime[i] == (uint64_t)st.st_mtime) {
+        continue;
       }
-      try {
-          YAML::Node root = YAML::LoadFile(i);
-          LoadFromYaml(root);
-          logger_->Info("LoadConfFile file=" + std::string(i) + "ok");
-      } catch (...) {
-          logger_->Error("LoadConfFile file=" + std::string(i) + "failed");
-      }
+      s_file2modifytime[i] = st.st_mtime;
+    }
+    try {
+      YAML::Node root = YAML::LoadFile(i);
+      LoadFromYaml(root);
+      logger->Info("LoadConfFile file=" + std::string(i) + "ok");
+    } catch (...) {
+      logger->Error("LoadConfFile file=" + std::string(i) + "failed");
+    }
   }
 }
 
 void Config::Visit(std::function<void(ConfigVarBase::ptr)> cb) {
-  //   RWMutexType::ReadLock lock(GetMutex());
-  ConfigVarMap& m = GetDatas();
+  std::shared_lock lock(get_mutex());
+  ConfigVarMap& m = get_datas();
   for (auto it = m.begin(); it != m.end(); ++it) {
     cb(it->second);
   }
 }
 
-}
+}  // namespace config
 
-}  // namespace piorun
+}  // namespace pio
