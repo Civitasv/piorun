@@ -3,7 +3,6 @@
 #include "core/smartptr.h"
 
 namespace pio {
-namespace logger {
 Ref<Logger> Logger::Create(const std::string &logpath) {
   return CreateRef<Logger>(logpath);
 }
@@ -24,5 +23,4 @@ std::string Logger::LevelToString(Level l) {
       return "[Unknown]";
   }
 }
-}  // namespace logger
 }  // namespace pio

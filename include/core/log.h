@@ -11,7 +11,6 @@
 #include "smartptr.h"
 
 namespace pio {
-namespace logger {
 class Logger {
  public:
   enum Level {
@@ -144,7 +143,6 @@ class Logger {
 
   uint32_t mask_;  //< 用于控制输出级别
 };
-}  // namespace logger
 }  // namespace pio
 
 #endif  // !PIORUN_CORE_LOG_H_

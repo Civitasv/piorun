@@ -5,7 +5,7 @@
 #include "core/log.h"
 
 static void test_with_format() {
-  using namespace pio::logger;
+  using namespace pio;
   auto logger = Logger::Create();
 
   logger->InfoF("This is a test for %s", "info");
@@ -15,7 +15,7 @@ static void test_with_format() {
 }
 
 static void test_without_format() {
-  using namespace pio::logger;
+  using namespace pio;
   auto logger = Logger::Create();
 
   logger->Info("This is a test for ", "info");
@@ -25,7 +25,7 @@ static void test_without_format() {
 }
 
 static void test_in_thread() {
-  using namespace pio::logger;
+  using namespace pio;
   auto logger = Logger::Create();
 
   auto func = [logger](const std::string& name) {
@@ -48,7 +48,7 @@ static void test_in_thread() {
 }
 
 static void test_stream_out() {
-  using namespace pio::logger;
+  using namespace pio;
   auto logger = Logger::Create();
 
   logger << "TEST "
@@ -58,7 +58,7 @@ static void test_stream_out() {
 }
 
 static void test_log_mask() {
-  using namespace pio::logger;
+  using namespace pio;
   auto logger = Logger::Create();
 
   logger->set_mask(Logger::ERROR | Logger::FATAL | Logger::INFO);
