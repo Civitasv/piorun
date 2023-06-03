@@ -16,6 +16,16 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY
 )
 # ---------------------------
 
+include(FetchContent)
+
+FetchContent_Declare(
+    yaml-cpp
+    GIT_REPOSITORY https://toscode.gitee.com/mirrors/yaml-cpp.git
+    GIT_TAG yaml-cpp-0.7.0
+)
+FetchContent_MakeAvailable(yaml-cpp)
+set(YAML_CPP_BUILD_TESTS OFF)
+
 add_subdirectory(vendor)
 add_subdirectory(src)
 add_subdirectory(tests)

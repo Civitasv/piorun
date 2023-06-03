@@ -3,4 +3,5 @@ target_sources(
     log.cc
     mutex.cc
     thread.cc
+    config.cc
 )
