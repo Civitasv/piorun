@@ -1,1 +1,7 @@
-target_sources(piorun PUBLIC log.cc config.cc)
+target_sources(
+    piorun PUBLIC 
+    log.cc
+    mutex.cc
+    thread.cc
+    config.cc
+)
