@@ -19,10 +19,5 @@
     "doxdocgen.c.getterText": "Get the {name} attr",
     "doxdocgen.c.setterText": "Set the {name} attr",
     "doxdocgen.c.factoryMethodText": "Create a {name} object",
-    "doxdocgen.file.copyrightTag": [
-        "@(c) {year} Civitasv"
-    ],
-    "doxdocgen.generic.authorEmail": "hscivitasv@gmail.com",
-    "doxdocgen.generic.authorName": "Civitasv",
     "doxdocgen.generic.commandSuggestionAddPrefix": true,
 }
