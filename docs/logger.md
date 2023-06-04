@@ -83,6 +83,12 @@ piorun_test.log:
 
 ```cpp
   template <typename... T>
+  void VerboseF(const char* __restrict__ fmt, const T&... msg)
+
+  template <typename... T>
+  void DebugF(const char* __restrict__ fmt, const T&... msg)
+
+  template <typename... T>
   void InfoF(const char* __restrict__ fmt, const T&... msg)
 
   template <typename... T>
@@ -124,6 +130,12 @@ void basic_test_with_format() {
 
 ```cpp
   template <typename... T>
+  void Verbose(const T&... msg);
+
+  template <typename... T>
+  void Debug(const T&... msg);
+
+  template <typename... T>
   void Info(const T&... msg);
 
   template <typename... T>
@@ -159,11 +171,42 @@ void basic_test_without_format() {
 
 ## 输出级别控制
 
-使用日志掩码控制输出级别，默认情况下，所有级别的日志均会输出。
+目前存在两种方式对输出级别进行控制：
+
+1. 默认方式：设置使用日志级别下限，所有级别大于等于该下限的日志会输出
+2. 设置日志掩码，默认情况下，所有级别的日志均会输出
+
+对于方式一：
 
 ### API
 
 ```cpp
+  void set_min_log_level(Level min_log_level);
+```
+
+### Example
+
+```cpp
+static void test_min_log_level() {
+  using namespace pio;
+  auto logger = Logger::Create();
+
+  logger->set_min_log_level(Logger::WARNING);
+
+  logger->Info("This won't show");
+  logger->Warning("This will show");
+  logger->Error("This will show");
+  logger->Fatal("This will show");
+}
+```
+
+对于方式二：
+
+### API
+
+```cpp
+  void set_use_mask(bool use_mask);
+
   void set_mask(uint32_t mask);
 ```
 
@@ -171,13 +214,14 @@ void basic_test_without_format() {
 
 ```cpp
 static void test_log_mask() {
-  using namespace pio::logger;
+  using namespace pio;
   auto logger = Logger::Create();
 
-  logger->set_mask(Logger::ERROR | Logger::FATAL | Logger::INFO);
+  logger->set_use_mask(true);
+  logger->set_mask(Logger::WARNING | Logger::ERROR | Logger::FATAL);
 
-  logger->Info("This will show");
-  logger->Warning("This won't show");
+  logger->Info("This won't show");
+  logger->Warning("This will show");
   logger->Error("This will show");
   logger->Fatal("This will show");
 }
