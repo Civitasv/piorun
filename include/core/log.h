@@ -25,11 +25,12 @@ class Logger {
   };
 
  public:
-  Logger() : min_log_level_(VERBOSE), use_mask_(false), mask_(0xFFFFFFFF) {
+  Logger(Level min_log_level)
+      : min_log_level_(min_log_level), use_mask_(false), mask_(0xFFFFFFFF) {
     logfile_ = stdout;
   }
-  Logger(const std::string& logpath)
-      : min_log_level_(VERBOSE), use_mask_(false), mask_(0xFFFFFFFF) {
+  Logger(const std::string& logpath, Level min_log_level)
+      : min_log_level_(min_log_level), use_mask_(false), mask_(0xFFFFFFFF) {
     logfile_ = fopen(logpath.c_str(), "w+");
   }
 
@@ -41,18 +42,21 @@ class Logger {
    * @brief 创建日志实例，输出到文件
    *
    * @param logpath 日志输出文件
+   * @param min_log_level 日志级别下限
    * @return Ref<Logger> 该日志实例可以在多个线程中共享，
    *         引用数量为0时会被自动回收
    */
-  static Ref<Logger> Create(const std::string& logpath);
+  static Ref<Logger> Create(const std::string& logpath,
+                            Level min_log_level = Level::VERBOSE);
 
   /**
    * @brief 创建日志实例，输出到标准输出
    *
+   * @param min_log_level 日志级别下限
    * @return Ref<Logger> 该日志实例可以在多个线程中共享，
    *         引用数量为0时会被自动回收
    */
-  static Ref<Logger> Create();
+  static Ref<Logger> Create(Level min_log_level = Level::VERBOSE);
 
   template <typename... T>
   inline void VerboseF(const char* __restrict__ fmt, const T&... msg) {
@@ -178,7 +182,7 @@ class Logger {
   FILE* logfile_;
   std::mutex mt_;
 
-  Level min_log_level_;  //< 用于控制输出级别
+  Level min_log_level_;  //< 用于控制输出级别下限
 
   bool use_mask_;  //< 是否使用 mask
   uint32_t mask_;  //< 用于更细粒度的控制输出级别

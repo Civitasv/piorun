@@ -15,18 +15,20 @@
    * @brief 创建日志实例，输出到文件
    *
    * @param logpath 日志输出文件
+   * @param min_log_level 日志级别下限
    * @return Ref<Logger> 该日志实例可以在多个线程中共享，
    *         引用数量为0时会被自动回收
    */
-  static Ref<Logger> Create(const std::string& logpath);
+  static Ref<Logger> Create(const std::string& logpath, Level min_log_level = Level::Verbose);
 
   /**
    * @brief 创建日志实例，输出到标准输出
    *
+   * @param min_log_level 日志级别下限
    * @return Ref<Logger> 该日志实例可以在多个线程中共享，
    *         引用数量为0时会被自动回收
    */
-  static Ref<Logger> Create();
+  static Ref<Logger> Create(Level min_log_level = Level::Verbose);
 ```
 
 提供两种构造策略，如果构造时提供了文件路径，则将日志输出到文件，否则将日志输出到控制台。
@@ -38,6 +40,8 @@ int main() {
   using namespace pio::logger;
   auto logger = Logger::Create();
 
+  logger->VerboseF("This is a test for %s", "verbose");
+  logger->DebugF("This is a test for %s", "debug");
   logger->InfoF("This is a test for %s", "info");
   logger->WarningF("This is a test for %s", "warning");
   logger->ErrorF("This is a test %s", "error");
@@ -46,6 +50,8 @@ int main() {
 ```
 
 ```txt
+[Verbose] This is a test for verbose
+[Debug] This is a test for debug
 [Info] This is a test for info
 [Warning] This is a test for warning
 [Error] This is a test error
@@ -59,6 +65,8 @@ int main() {
   using namespace pio::logger;
   auto logger = Logger::Create("piorun_test.log"); // 事实上，只有这里被修改了
 
+  logger->VerboseF("This is a test for %s", "verbose");
+  logger->DebugF("This is a test for %s", "debug");
   logger->InfoF("This is a test for %s", "info");
   logger->WarningF("This is a test for %s", "warning");
   logger->ErrorF("This is a test %s", "error");
@@ -69,6 +77,8 @@ int main() {
 piorun_test.log:
 
 ```txt
+[Verbose] This is a test for verbose
+[Debug] This is a test for debug
 [Info] This is a test for info
 [Warning] This is a test for warning
 [Error] This is a test error
@@ -108,6 +118,8 @@ void basic_test_with_format() {
   using namespace pio::logger;
   auto logger = Logger::Create();
 
+  logger->VerboseF("This is a test for %s", "verbose");
+  logger->DebugF("This is a test for %s", "debug");
   logger->InfoF("This is a test for %s", "info");
   logger->WarningF("This is a test for %s", "warning");
   logger->ErrorF("This is a test for %s", "error");
@@ -116,6 +128,8 @@ void basic_test_with_format() {
 ```
 
 ```txt
+[Verbose] This is a test for verbose
+[Debug] This is a test for debug
 [Info] This is a test for info
 [Warning] This is a test for warning
 [Error] This is a test for error
@@ -155,6 +169,8 @@ void basic_test_without_format() {
   using namespace pio::logger;
   auto logger = Logger::Create();
 
+  logger->Verbose("This is a test for ", "verbose");
+  logger->Debug("This is a test for ", "debug");
   logger->Info("This is a test for ", "info");
   logger->Warning("This is a test for ", "warning");
   logger->Error("This is a test for ", "error");
@@ -163,6 +179,8 @@ void basic_test_without_format() {
 ```
 
 ```txt
+[Verbose] This is a test for verbose
+[Debug] This is a test for debug
 [Info] This is a test for info
 [Warning] This is a test for warning
 [Error] This is a test for error
@@ -190,6 +208,7 @@ void basic_test_without_format() {
 static void test_min_log_level() {
   using namespace pio;
   auto logger = Logger::Create();
+  // or: auto logger = Logger::Create(Logger::WARNING);
 
   logger->set_min_log_level(Logger::WARNING);
 
@@ -206,7 +225,6 @@ static void test_min_log_level() {
 
 ```cpp
   void set_use_mask(bool use_mask);
-
   void set_mask(uint32_t mask);
 ```
 
@@ -217,11 +235,11 @@ static void test_log_mask() {
   using namespace pio;
   auto logger = Logger::Create();
 
-  logger->set_use_mask(true);
-  logger->set_mask(Logger::WARNING | Logger::ERROR | Logger::FATAL);
+  logger->set_use_mask(true); // 必须设置 use_mask_ 为 true
+  logger->set_mask(Logger::INFO | Logger::ERROR | Logger::FATAL);
 
-  logger->Info("This won't show");
-  logger->Warning("This will show");
+  logger->Info("This will show");
+  logger->Warning("This won't show");
   logger->Error("This will show");
   logger->Fatal("This will show");
 }
