@@ -8,6 +8,8 @@ static void test_with_format() {
   using namespace pio;
   auto logger = Logger::Create();
 
+  logger->VerboseF("This is a test for %s", "verbose");
+  logger->DebugF("This is a test for %s", "debug");
   logger->InfoF("This is a test for %s", "info");
   logger->WarningF("This is a test for %s", "warning");
   logger->ErrorF("This is a test for %s", "error");
@@ -18,6 +20,8 @@ static void test_without_format() {
   using namespace pio;
   auto logger = Logger::Create();
 
+  logger->Verbose("This is a test for ", "verbose");
+  logger->Debug("This is a test for ", "debug");
   logger->Info("This is a test for ", "info");
   logger->Warning("This is a test for ", "warning");
   logger->Error("This is a test for ", "error");
@@ -59,9 +63,7 @@ static void test_stream_out() {
 
 static void test_min_log_level() {
   using namespace pio;
-  auto logger = Logger::Create();
-
-  logger->set_min_log_level(Logger::WARNING);
+  auto logger = Logger::Create(Logger::WARNING);
 
   logger->Info("This won't show");
   logger->Warning("This will show");
@@ -82,4 +84,4 @@ static void test_log_mask() {
   logger->Fatal("This will show");
 }
 
-int main() { test_log_mask(); }
+int main() { test_with_format(); }
