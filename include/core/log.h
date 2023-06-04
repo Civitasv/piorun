@@ -11,19 +11,26 @@
 #include "smartptr.h"
 
 namespace pio {
+#define BIT(n) 1 << n
 class Logger {
  public:
   enum Level {
-    INFO = 1 << 0,
-    WARNING = 1 << 1,
-    ERROR = 1 << 2,
-    FATAL = 1 << 3,
+    VERBOSE = BIT(0),
+    DEBUG = BIT(1),
+    INFO = BIT(2),
+    WARNING = BIT(3),
+    ERROR = BIT(4),
+    FATAL = BIT(5),
+    NO_LOG = BIT(6)
   };
 
  public:
-  Logger() : mask_(0xFFFFFFFF) { logfile_ = stdout; }
-  Logger(const std::string& logpath) : mask_(0xFFFFFFFF) {
-    logfile_ = fopen(logpath.c_str(), "rw");
+  Logger() : min_log_level_(VERBOSE), use_mask_(false), mask_(0xFFFFFFFF) {
+    logfile_ = stdout;
+  }
+  Logger(const std::string& logpath)
+      : min_log_level_(VERBOSE), use_mask_(false), mask_(0xFFFFFFFF) {
+    logfile_ = fopen(logpath.c_str(), "w+");
   }
 
   ~Logger() {
@@ -48,6 +55,16 @@ class Logger {
   static Ref<Logger> Create();
 
   template <typename... T>
+  inline void VerboseF(const char* __restrict__ fmt, const T&... msg) {
+    LogWithFormat(VERBOSE, fmt, msg...);
+  }
+
+  template <typename... T>
+  inline void DebugF(const char* __restrict__ fmt, const T&... msg) {
+    LogWithFormat(DEBUG, fmt, msg...);
+  }
+
+  template <typename... T>
   inline void InfoF(const char* __restrict__ fmt, const T&... msg) {
     LogWithFormat(INFO, fmt, msg...);
   }
@@ -65,6 +82,16 @@ class Logger {
   template <typename... T>
   inline void FatalF(const char* __restrict__ fmt, const T&... msg) {
     LogWithFormat(FATAL, fmt, msg...);
+  }
+
+  template <typename... T>
+  inline void Verbose(const T&... msg) {
+    LogWithoutFormat(VERBOSE, msg...);
+  }
+
+  template <typename... T>
+  inline void Debug(const T&... msg) {
+    LogWithoutFormat(DEBUG, msg...);
   }
 
   template <typename... T>
@@ -98,6 +125,12 @@ class Logger {
   }
 
  public:
+  void set_min_log_level(Level min_log_level) {
+    min_log_level_ = min_log_level;
+  }
+
+  void set_use_mask(bool use_mask) { use_mask_ = use_mask; }
+
   void set_mask(uint32_t mask) { mask_ = mask; }
 
  private:
@@ -109,7 +142,9 @@ class Logger {
 
   template <typename... T>
   void LogWithoutFormat(Level l, const T&... msg) {
-    if (l & mask_) {
+    bool check = (use_mask_ && ((l & mask_) != 0) ||
+                  !use_mask_ && (l >= min_log_level_));
+    if (check) {
       std::lock_guard<std::mutex> lk(mt_);
       auto level = LevelToString(l);
 
@@ -124,7 +159,9 @@ class Logger {
 
   template <typename... T>
   void LogWithFormat(Level l, const char* __restrict__ fmt, const T&... msg) {
-    if (l & mask_) {
+    bool check = (use_mask_ && ((l & mask_) != 0)) ||
+                 (!use_mask_ && (l >= min_log_level_));
+    if (check) {
       std::lock_guard<std::mutex> lk(mt_);
       auto level = LevelToString(l);
 
@@ -141,7 +178,10 @@ class Logger {
   FILE* logfile_;
   std::mutex mt_;
 
-  uint32_t mask_;  //< 用于控制输出级别
+  Level min_log_level_;  //< 用于控制输出级别
+
+  bool use_mask_;  //< 是否使用 mask
+  uint32_t mask_;  //< 用于更细粒度的控制输出级别
 };
 }  // namespace pio
 

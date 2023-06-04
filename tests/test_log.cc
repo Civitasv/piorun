@@ -57,14 +57,27 @@ static void test_stream_out() {
          << "Out " << 1 << '\n';
 }
 
+static void test_min_log_level() {
+  using namespace pio;
+  auto logger = Logger::Create();
+
+  logger->set_min_log_level(Logger::WARNING);
+
+  logger->Info("This won't show");
+  logger->Warning("This will show");
+  logger->Error("This will show");
+  logger->Fatal("This will show");
+}
+
 static void test_log_mask() {
   using namespace pio;
   auto logger = Logger::Create();
 
-  logger->set_mask(Logger::ERROR | Logger::FATAL | Logger::INFO);
+  logger->set_use_mask(true);
+  logger->set_mask(Logger::WARNING | Logger::ERROR | Logger::FATAL);
 
-  logger->Info("This will show");
-  logger->Warning("This won't show");
+  logger->Info("This won't show");
+  logger->Warning("This will show");
   logger->Error("This will show");
   logger->Fatal("This will show");
 }

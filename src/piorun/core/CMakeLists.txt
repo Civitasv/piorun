@@ -1,5 +1,5 @@
 target_sources(
-    piorun PUBLIC 
+    piorun PUBLIC
     log.cc
     mutex.cc
     thread.cc
