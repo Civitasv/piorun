@@ -18,8 +18,6 @@
 
 namespace pio {
 
-namespace config {
-
 ConfigVarBase::ptr Config::LookupBase(const std::string& name) {
   std::shared_lock lock(get_mutex());
   auto it = get_datas().find(name);
@@ -74,7 +72,7 @@ static std::mutex s_mutex;
 
 void Config::LoadFromConfDir(const std::string& path, bool force) {
   std::vector<std::string> files;
-  pio::util::ListAllFile(files, path, ".yml");
+  pio::ListAllFile(files, path, ".yml");
 
   for (auto& i : files) {
     {
@@ -103,7 +101,5 @@ void Config::Visit(std::function<void(ConfigVarBase::ptr)> cb) {
     cb(it->second);
   }
 }
-
-}  // namespace config
 
 }  // namespace pio
