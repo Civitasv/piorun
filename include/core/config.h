@@ -32,9 +32,7 @@
 
 namespace pio {
 
-namespace config {
-
-auto static logger = pio::logger::Logger::Create("piorun_config.log");
+auto static logger = pio::Logger::Create("piorun_config.log");
 
 /**
  * @brief 将源格式数据转换为目标格式数据
@@ -569,8 +567,6 @@ class Config {
     return mutex_;
   }
 };
-
-}  // namespace config
 
 }  // namespace pio
 

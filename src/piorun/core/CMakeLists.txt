@@ -4,4 +4,5 @@ target_sources(
     mutex.cc
     thread.cc
     config.cc
+    util.cc
 )

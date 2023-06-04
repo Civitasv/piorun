@@ -12,11 +12,11 @@
 
 #include "core/config.h"
 
-pio::config::ConfigVar<int>::ptr g_int_value_config =
-    pio::config::Config::Lookup("system.port", (int)8080, "system port");
+pio::ConfigVar<int>::ptr g_int_value_config =
+    pio::Config::Lookup("system.port", (int)8080, "system port");
 
-pio::config::ConfigVar<float>::ptr g_float_value_config =
-    pio::config::Config::Lookup("system.value", (float)10.2f, "system value");
+pio::ConfigVar<float>::ptr g_float_value_config =
+    pio::Config::Lookup("system.value", (float)10.2f, "system value");
 
 void print_yaml(const YAML::Node& node, int level) {
   if (node.IsScalar()) {
@@ -66,7 +66,6 @@ class Person {
 
 namespace pio {
 
-namespace config {
 template <>
 class LexicalCast<std::string, Person> {
  public:
@@ -94,19 +93,17 @@ class LexicalCast<Person, std::string> {
   }
 };
 
-}  // namespace config
-
 }  // namespace pio
 
-static pio::config::ConfigVar<Person>::ptr g_person =
-    pio::config::Config::Lookup("class.person", Person(), "system person");
+static pio::ConfigVar<Person>::ptr g_person =
+    pio::Config::Lookup("class.person", Person(), "system person");
 
-static pio::config::ConfigVar<std::map<std::string, Person> >::ptr
-    g_person_map = pio::config::Config::Lookup(
-        "class.map", std::map<std::string, Person>(), "system person");
+static pio::ConfigVar<std::map<std::string, Person> >::ptr g_person_map =
+    pio::Config::Lookup("class.map", std::map<std::string, Person>(),
+                        "system person");
 
-static pio::config::ConfigVar<std::map<std::string, std::vector<Person> > >::ptr
-    g_person_vec_map = pio::config::Config::Lookup(
+static pio::ConfigVar<std::map<std::string, std::vector<Person> > >::ptr
+    g_person_vec_map = pio::Config::Lookup(
         "class.vec_map", std::map<std::string, std::vector<Person> >(),
         "system person");
 
