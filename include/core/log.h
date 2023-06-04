@@ -31,7 +31,7 @@ class Logger {
   }
   Logger(const std::string& logpath, Level min_log_level)
       : min_log_level_(min_log_level), use_mask_(false), mask_(0xFFFFFFFF) {
-    logfile_ = fopen(logpath.c_str(), "w+");
+    logfile_ = fopen(logpath.c_str(), "w");
   }
 
   ~Logger() {
