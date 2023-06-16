@@ -9,3 +9,6 @@ target_link_libraries(test_thread piorun)
 
 add_executable(test_config test_config.cc)
 target_link_libraries(test_config piorun yaml-cpp)
+
+add_executable(test_stackless_coroutine test_stackless_coroutine.cc)
+target_link_libraries(test_stackless_coroutine piorun)

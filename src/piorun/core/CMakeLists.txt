@@ -5,4 +5,5 @@ target_sources(
     thread.cc
     config.cc
     util.cc
+    scheduler.cc
 )
