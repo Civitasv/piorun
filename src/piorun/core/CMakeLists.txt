@@ -1,9 +1,9 @@
 target_sources(
-    piorun PUBLIC
+    piorun
+    PUBLIC
     log.cc
     mutex.cc
     thread.cc
     config.cc
     util.cc
-    scheduler.cc
 )

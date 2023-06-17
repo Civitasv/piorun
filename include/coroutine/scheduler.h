@@ -1,16 +1,17 @@
-#ifndef PIORUN_CORE_SCHEDULER_H_
-#define PIORUN_CORE_SCHEDULER_H_
+#ifndef PIORUN_COROUTINE_SCHEDULER_H_
+#define PIORUN_COROUTINE_SCHEDULER_H_
 
 #include <sys/epoll.h>
 
 #include <stdexcept>
 
 #include "lazy.h"
-#include "log.h"
+#include "core/log.h"
 #include "promise.h"
 
 namespace pio {
 auto static logger = pio::Logger::Create("piorun_scheduler.log");
+
 class Scheduler {
  private:
   int epoll_fd_;
@@ -58,4 +59,4 @@ class Scheduler {
 
 }  // namespace pio
 
-#endif
+#endif  // PIORUN_COROUTINE_SCHEDULER_H_
