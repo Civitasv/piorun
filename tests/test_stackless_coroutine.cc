@@ -4,17 +4,18 @@
 
 #include <iostream>
 
-#include "core/scheduler.h"
+#include "coroutine/scheduler.h"
 
 using namespace pio;
 
 class EchoServer {
  public:
   EchoServer(Scheduler* scheduler) : scheduler_(scheduler) {}
+
   void Run() {
     int listen_fd = CreateSocket();
     BindAndListen(listen_fd);
-    scheduler_->AddLazy(AcceptClients(listen_fd).handle_, listen_fd);
+    scheduler_->AddLazy(AcceptClients(listen_fd).handle(), listen_fd);
 
     scheduler_->Run();
   }
@@ -58,7 +59,7 @@ class EchoServer {
       }
 
       pio::Lazy<void> client_task = HandleClient(client_fd);
-      scheduler_->AddLazy(std::move(client_task.handle_),
+      scheduler_->AddLazy(std::move(client_task.handle()),
                           client_fd);  // 使用 scheduler 对象调用 AddLazy 方法
     }
 

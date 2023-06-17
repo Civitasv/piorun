@@ -1,5 +1,5 @@
-#ifndef PIORUN_CORE_LAZY_H_
-#define PIORUN_CORE_LAZY_H_
+#ifndef PIORUN_COROUTINE_LAZY_H_
+#define PIORUN_COROUTINE_LAZY_H_
 
 #include <coroutine>
 
@@ -11,7 +11,8 @@ class Promise;
 template <typename T>
 class LazyAwaiter {
  public:
-  LazyAwaiter(std::coroutine_handle<Promise<T>> handle) : handle_(handle) {}
+  using promise_type = Promise<T>;
+  LazyAwaiter(std::coroutine_handle<promise_type> handle) : handle_(handle) {}
 
   bool await_ready() const noexcept { return handle_.done(); }
 
@@ -25,7 +26,7 @@ class LazyAwaiter {
   T await_resume() const { return handle_.promise().get_return_value(); }
 
  private:
-  std::coroutine_handle<Promise<T>> handle_;
+  std::coroutine_handle<promise_type> handle_;
 };
 
 template <typename T>
@@ -49,9 +50,13 @@ struct Lazy {
     }
   }
 
+ public:
+  std::coroutine_handle<promise_type> handle() { return handle_; }
+
+ private:
   std::coroutine_handle<promise_type> handle_;
 };
 
 }  // namespace pio
 
-#endif
+#endif  // PIORUN_COROUTINE_LAZY_H_

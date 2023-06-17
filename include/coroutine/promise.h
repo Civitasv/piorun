@@ -1,5 +1,5 @@
-#ifndef PIORUN_CORE_PROMISE_H_
-#define PIORUN_CORE_PROMISE_H_
+#ifndef PIORUN_COROUTINE_PROMISE_H_
+#define PIORUN_COROUTINE_PROMISE_H_
 
 #include <coroutine>
 #include <exception>
@@ -51,4 +51,4 @@ class Promise<void> : public PromiseBase<void> {
 
 }  // namespace pio
 
-#endif
+#endif  // PIORUN_COROUTINE_PROMISE_H_
