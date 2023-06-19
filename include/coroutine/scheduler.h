@@ -5,17 +5,14 @@
 
 #include <stdexcept>
 
-#include "lazy.h"
 #include "core/log.h"
+#include "lazy.h"
 #include "promise.h"
 
 namespace pio {
 auto static logger = pio::Logger::Create("piorun_scheduler.log");
 
 class Scheduler {
- private:
-  int epoll_fd_;
-
  public:
   Scheduler() : epoll_fd_(-1) {
     epoll_fd_ = epoll_create1(0);
@@ -35,26 +32,9 @@ class Scheduler {
 
   void Run();
 
- private:
-  // struct LazyHandle {
-  //   std::coroutine_handle<> coro_;
-  //   int fd_;
-
-  //   LazyHandle(std::coroutine_handle<> coro, int fd) : coro_(coro), fd_(fd)
-  //   {}
-
-  //   void Resume() {
-  //     if (!coro_.done()) {
-  //       coro_.resume();
-  //     }
-  //   }
-  // };
-
-  // template <typename Awaitable>
-  // LazyHandle* CreateLazyHandle(Awaitable&& awaitable, int fd) {
-  //   auto coro = std::coroutine_handle<>::from_promise(awaitable.promise());
-  //   return new LazyHanle(coro, fd);
-  // }
+ public:
+  int listen_fd_;
+  int epoll_fd_;
 };
 
 }  // namespace pio

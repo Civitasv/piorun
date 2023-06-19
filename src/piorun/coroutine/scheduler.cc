@@ -3,7 +3,11 @@
 namespace pio {
 void Scheduler::AddLazy(std::coroutine_handle<> coro_handle, int fd) {
   epoll_event event{};
-  event.events = EPOLLIN | EPOLLET;
+  if (fd == listen_fd_) {
+    event.events = EPOLLIN;
+  } else {
+    event.events = EPOLLIN | EPOLLET;
+  }
   event.data.ptr = coro_handle.address();
   if (epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, fd, &event) == -1) {
     throw std::runtime_error("Failed to add lazy to epoll");

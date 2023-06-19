@@ -1,3 +1,4 @@
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -44,11 +45,12 @@ class EchoServer {
       throw std::runtime_error("监听套接字失败");
     }
 
-    std::cout << "服务器启动";
+    scheduler_->listen_fd_ = listen_fd;
   }
 
   pio::Lazy<void> AcceptClients(int listen_fd) {
     while (true) {
+      // co_await std::suspend_always{};
       sockaddr_in client_address{};
       socklen_t client_address_len = sizeof(client_address);
       int client_fd =
@@ -58,8 +60,11 @@ class EchoServer {
         throw std::runtime_error("接受客户端连接失败");
       }
 
-      pio::Lazy<void> client_task = HandleClient(client_fd);
-      scheduler_->AddLazy(std::move(client_task.handle()),
+      int flag = fcntl(client_fd, F_GETFL);
+      flag |= O_NONBLOCK;
+      fcntl(client_fd, F_SETFL, flag);
+
+      scheduler_->AddLazy(HandleClient(client_fd).handle(),
                           client_fd);  // 使用 scheduler 对象调用 AddLazy 方法
     }
 
@@ -70,11 +75,23 @@ class EchoServer {
     char buffer[1024];
     ssize_t num_bytes;
 
-    while ((num_bytes = read(client_fd, buffer, sizeof(buffer))) > 0) {
-      write(client_fd, buffer, num_bytes);
+    while (1) {
+      num_bytes = read(client_fd, buffer, sizeof(buffer));
+      if (num_bytes == 0) {
+        epoll_ctl(scheduler_->epoll_fd_, EPOLL_CTL_DEL, client_fd, NULL);
+        close(client_fd);
+        co_return;
+      } else if (num_bytes > 0) {
+        write(client_fd, buffer, num_bytes);
+      } else {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+          co_await std::suspend_always{};
+        } else {
+          logger->Error("read client fd error");
+          exit(0);
+        }
+      }
     }
-
-    close(client_fd);
 
     co_return;
   }

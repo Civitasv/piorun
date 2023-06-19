@@ -28,6 +28,10 @@ class Promise : public PromiseBase<T> {
     value_ = std::forward<T>(value);
     return value_;
   }
+  auto yield_value(T value) {
+    value_ = value;
+    return std::suspend_always();
+  }
   T get_return_value() const { return value_; }
 
  private:
@@ -47,6 +51,7 @@ class Promise<void> : public PromiseBase<void> {
   }
   void return_void() noexcept {}
   void get_return_value() const {}
+  auto yield_value() { return std::suspend_always(); }
 };
 
 }  // namespace pio
