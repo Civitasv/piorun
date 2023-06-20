@@ -4,54 +4,138 @@
 #include <coroutine>
 #include <exception>
 
-#include "lazy.h"
+#include "core/log.h"
+#include "core/mutex.h"
+#include "core/thread.h"
 
 namespace pio {
-template <typename T>
-class PromiseBase {
- public:
-  PromiseBase() = default;
-  virtual ~PromiseBase() = default;
+auto static logger_coroutine = pio::Logger::Create("piorun_coroutine.log");
+template <typename Promise, bool Joinable>
+struct FinalAwaiter {
+  bool await_ready() const noexcept { return false; }
+
+  void await_resume() const noexcept {}
+
+  std::coroutine_handle<> await_suspend(
+      std::coroutine_handle<Promise> coroutine) const noexcept {
+    // Check if this coroutine is being finalized from the
+    // middle of a "continuation" coroutine and hop back there to
+    // continue execution while *this* coroutine is suspended.
+
+    logger_coroutine->Info("Final await for coroutine %p", coroutine.address());
+    // After acquiring the flag, the other thread's write to the
+    // coroutine's continuation must be visible (one-way
+    // communication)
+    if (coroutine.promise().flag_.exchange(true, std::memory_order_acquire)) {
+      // We're not the first to reach here, meaning the
+      // continuation is installed properly (if any)
+      auto continuation = coroutine.promise().continuation;
+      if (continuation) {
+        logger_coroutine->Info("Resuming continuation %p on %p",
+                               continuation.address(), coroutine.address());
+        return continuation;
+      } else {
+        logger_coroutine->Error("Coroutine %p missing continuation\n",
+                                coroutine.address());
+      }
+    }
+    return std::noop_coroutine();
+  }
 };
 
-template <typename T>
-class Promise : public PromiseBase<T> {
- public:
-  Promise() = default;
+template <typename Promise>
+struct FinalAwaiter<Promise, true> {
+  bool await_ready() const noexcept { return false; }
+
+  void await_resume() const noexcept {}
+
+  void await_suspend(std::coroutine_handle<Promise> coroutine) const noexcept {
+    coroutine.promise().join_sem_.release();
+    coroutine.destroy();
+  }
+};
+
+// Helper function for awaiting on a task. The next resume point is
+// installed as a continuation of the task being awaited.
+template <typename Promise>
+std::coroutine_handle<> await_suspend(std::coroutine_handle<Promise> base,
+                                      std::coroutine_handle<> next) {
+  if constexpr (Promise::joinable_) {
+    // Joinable tasks are never awaited and so cannot have a
+    // continuation by definition
+    return std::noop_coroutine();
+  } else {
+    logger_coroutine->Info("Installing continuation %p for %p", next.address(),
+                           base.address());
+    base.promise().continuation = next;
+    // The write to the continuation must be visible to a person that
+    // acquires the flag
+    if (base.promise().flag_.exchange(true, std::memory_order_release)) {
+      // We're not the first to reach here, meaning the continuation
+      // won't get read
+      return next;
+    }
+    return std::noop_coroutine();
+  }
+}
+
+// All promises need the `continuation` member, which is set when a
+// coroutine is suspended within another coroutine. The `continuation`
+// handle is used to hop back from that suspension point when the inner
+// coroutine finishes.
+template <bool Joinable>
+struct PromiseBase {
+  constexpr static bool joinable_ = Joinable;
+  std::atomic<bool> flag_ = false;
+  // When a coroutine suspends, the continuation stores the handle to the
+  // resume point, which immediately following the suspend point.
+  std::coroutine_handle<> continuation = nullptr;
+  // Do not suspend immediately on entry of a coroutine
   std::suspend_never initial_suspend() const noexcept { return {}; }
-  std::suspend_never final_suspend() const noexcept { return {}; }
-  void unhandled_exception() { std::terminate(); }
-  Lazy<T> get_return_object() {
-    return Lazy<T>(std::coroutine_handle<Promise<T>>::from_promise(*this));
+  void unhandled_exception() const noexcept {
+    // piorun doesn't currently handle exceptions.
   }
-  T return_value(T&& value) noexcept {
-    value_ = std::forward<T>(value);
-    return value_;
-  }
-  auto yield_value(T value) {
-    value_ = value;
-    return std::suspend_always();
-  }
-  T get_return_value() const { return value_; }
-
- private:
-  T value_;
 };
 
+// Joinable tasks need an additional semaphore the joiner can wait on
 template <>
-class Promise<void> : public PromiseBase<void> {
- public:
-  Promise() = default;
-  std::suspend_never initial_suspend() const noexcept { return {}; }
-  std::suspend_never final_suspend() const noexcept { return {}; }
-  void unhandled_exception() { std::terminate(); }
-  Lazy<void> get_return_object() {
-    return Lazy<void>(
-        std::coroutine_handle<Promise<void>>::from_promise(*this));
+struct PromiseBase<true> : public PromiseBase<false> {
+  Semaphore join_sem_{0};
+};
+
+template <typename Lazy, typename T, bool Joinable>
+struct Promise : public PromiseBase<Joinable> {
+  T data_;
+
+  Lazy get_return_object() noexcept {
+    // On coroutine entry, we store as the continuation a handle
+    // corresponding to the next sequence point from the caller.
+    return {std::coroutine_handle<Promise>::from_promise(*this)};
   }
+
+  void return_value(T const& value) noexcept(
+      std::is_nothrow_copy_assignable_v<T>) {
+    data_ = value;
+  }
+
+  void return_value(T&& value) noexcept(std::is_nothrow_move_assignable_v<T>) {
+    data_ = std::move(value);
+  }
+
+  FinalAwaiter<Promise, Joinable> final_suspend() noexcept { return {}; }
+};
+
+template <typename Lazy, bool Joinable>
+struct Promise<Lazy, void, Joinable> : public PromiseBase<Joinable> {
+  Lazy get_return_object() noexcept {
+    // On coroutine entry, we store as the continuation a handle
+    // corresponding to the next sequence point from the caller.
+    return {std::coroutine_handle<Promise>::from_promise(*this)};
+  }
+
   void return_void() noexcept {}
-  void get_return_value() const {}
-  auto yield_value() { return std::suspend_always(); }
+
+  FinalAwaiter<Promise, Joinable> final_suspend() noexcept { return {}; }
 };
 
 }  // namespace pio
