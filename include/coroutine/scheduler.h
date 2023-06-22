@@ -3,38 +3,43 @@
 
 #include <sys/epoll.h>
 
+#include <coroutine>
+#include <list>
 #include <stdexcept>
 
 #include "core/log.h"
-#include "lazy.h"
-#include "promise.h"
 
 namespace pio {
 auto static logger = pio::Logger::Create("piorun_scheduler.log");
 
 class Scheduler {
- public:
-  Scheduler() : epoll_fd_(-1) {
-    epoll_fd_ = epoll_create1(0);
-    if (epoll_fd_ == -1) {
-      throw std::runtime_error("Failed to create epoll");
-      logger->Error("Failed to create epoll");
-    }
-  }
-
-  ~Scheduler() {
-    if (epoll_fd_ != -1) {
-      close(epoll_fd_);
-    }
-  }
-
-  void AddLazy(std::coroutine_handle<> coro_handle, int fd);
-
-  void Run();
+ private:
+  std::list<std::coroutine_handle<>> tasks_;
 
  public:
-  int listen_fd_;
-  int epoll_fd_;
+  bool Schedule() {
+    auto task = tasks_.front();
+    tasks_.pop_front();
+
+    if (not task.done()) {
+      task.resume();
+    }
+
+    return not tasks_.empty();
+  }
+
+  auto Suspend() {
+    struct awaiter : std::suspend_always {
+      Scheduler& sched_;
+
+      explicit awaiter(Scheduler& sched) : sched_(sched) {}
+      void await_suspend(std::coroutine_handle<> coro) const noexcept {
+        sched_.tasks_.push_back(coro);
+      }
+    };
+
+    return awaiter(*this);
+  }
 };
 
 }  // namespace pio
