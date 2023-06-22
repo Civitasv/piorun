@@ -1,9 +1,11 @@
 # 配置模块
 
 ## 模块简介
+
 * 利用yaml格式进行配置，通过yaml-cpp进行序列与反序列
 * 支持解析vector、set、map、unordered_set、unordered_map等STL容器
 * 支持自定义类型的支持，需要实现序列化和反序列化方法，例如：
+
 ```c++
 template <>
 class LexicalCast<std::string, Person> {
@@ -32,7 +34,9 @@ class LexicalCast<Person, std::string> {
   }
 };
 ```
+
 * 可通过添加回调函数实现在更新配置之后同步更新相关变量，例如：
+
 ```c++
 static pio::config::ConfigVar<Person>::ptr g_person =
     pio::config::Config::Lookup("class.person", Person(), "system person");
@@ -47,11 +51,15 @@ void TestCallBack() {
   std::cout << "after: " << s_person.ToString();
 }
 ```
+
 结果：
+
+```txt
+before: [Person name= age=0 sex=0]after: [Person name=hello age=0 sex=0]
 ```
-befor: [Person name= age=0 sex=0]after: [Person name=hello age=0 sex=0]
-```
+
 * 可以通过加载.log文件直接更新配置
+
 ```c++
   /**
    * @brief 加载path文件夹里面的配置文件

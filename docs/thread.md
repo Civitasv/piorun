@@ -1,6 +1,6 @@
-## 线程模块实现
+# 线程模块实现
 
-#### Semaphore
+## Semaphore
 
 - 不采用c++20 counting_semaphore，原因是counting_semaphore是一个模板，模板参数作为信号量容量
 
@@ -15,7 +15,7 @@ std::counting_semaphore<10> sem(2);
 
 - nullmutex, nullrwmutx, FiberSemaphore: 空锁用于调试？我们就不实现了，FiberSemaphore是协程级信号量，暂不实现(感觉放在协程模块较好)
 
-#### Thread
+## Thread
 
 - 对pthread的简单封装
 
@@ -25,16 +25,11 @@ std::counting_semaphore<10> sem(2);
 
 - top -H -p [进程ID] 可以查看某进程下的线程
 
-#### 问题
+## 问题
 
-- bin目录太长，个人觉得bin/debug, bin/release就够了
-
-- 模块文件组织问题
-
-- 开发文档：每个模块实现的同时都简单写一个文档，方便其他人看
-
-- api：尽量使用标准库api，除非有特殊需求或者特定场景的性能瓶颈，例如 RWLock、Ref 等直接用std::shared_mutex等
-
-- 第三方库：建议不要使用，yaml库如果可以直接在cmake中配置那就用一下吧，以后有想用的库的时候一起讨论一下看有没有用的必要
-
-- api文档：用Doxygen自动生成？
+- [x] bin目录太长，个人觉得bin/debug, bin/release就够了
+- [x] 模块文件组织问题
+- [x] 开发文档：每个模块实现的同时都简单写一个文档，方便其他人看
+- [x] api：尽量使用标准库api，除非有特殊需求或者特定场景的性能瓶颈，例如 RWLock、Ref 等直接用std::shared_mutex等
+- [x] 第三方库：建议不要使用，yaml库如果可以直接在cmake中配置那就用一下吧，以后有想用的库的时候一起讨论一下看有没有用的必要
+- [ ] api文档：用Doxygen自动生成？
