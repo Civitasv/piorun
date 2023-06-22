@@ -5,14 +5,69 @@
 
 #include <coroutine>
 #include <iostream>
+#include <vector>
 
-#include "coroutine/lazy.h"
+#include "coroutine/generator.h"
+#include "coroutine/scheduler.h"
+#include "coroutine/task.h"
 
-pio::Lazy<> simple_coroutine() {
-  co_await std::suspend_never{};
+using namespace pio;
 
-  // Fake some work with a timer
-  std::this_thread::sleep_for(std::chrono::milliseconds{50});
+Generator<int> Interleaved(std::vector<int> a, std::vector<int> b) {
+  auto lamb = [](std::vector<int>& v) -> Generator<int> {
+    for (const auto& e : v) {
+      co_yield e;
+    }
+  };
+
+  auto x = lamb(a);
+  auto y = lamb(b);
+
+  while (not x.Finished() or not y.Finished()) {
+    if (not x.Finished()) {
+      co_yield x.Value();
+      x.Resume();
+    }
+
+    if (not y.Finished()) {
+      co_yield y.Value();
+      y.Resume();
+    }
+  }
+}
+
+Task TaskA(Scheduler& sched) {
+  std::cout << "Hello, from task A\n";
+
+  co_await sched.Suspend();
+
+  std::cout << "A is back doing work\n";
+
+  co_await sched.Suspend();
+
+  std::cout << "A is back doing more work\n";
+}
+
+Task TaskB(Scheduler& sched) {
+  std::cout << "Hello, from task B\n";
+
+  co_await sched.Suspend();
+
+  std::cout << "B is back doing work\n";
+
+  co_await sched.Suspend();
+
+  std::cout << "B is back doing more work\n";
+}
+
+void SchedulerUsage() {
+  Scheduler sched;
+
+  TaskA(sched);
+  TaskB(sched);
+
+  while (sched.Schedule()) {
+  }
 }
 
 // #include "coroutine/scheduler.h"
@@ -119,6 +174,18 @@ int main() {
   //   std::cerr << "错误: " << e.what() << std::endl;
   //   return 1;
   // }
+
+#if 0  // generator example
+  std::vector<int> a = {1, 3, 5, 7};
+  std::vector<int> b = {2, 4, 6, 8};
+  auto generator = Interleaved(a, b);
+
+  for (const auto& e : generator) {
+    std::cout << e << '\n';
+  }
+#endif
+
+  SchedulerUsage();
 
   return 0;
 }
