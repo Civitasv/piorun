@@ -14,7 +14,7 @@ auto static logger = pio::Logger::Create("piorun_scheduler.log");
 
 class Scheduler {
  private:
-  std::list<std::coroutine_handle<>> tasks_;
+  std::list<std::coroutine_handle<>> tasks_{};
 
  public:
   bool Schedule() {
@@ -22,6 +22,7 @@ class Scheduler {
     tasks_.pop_front();
 
     if (not task.done()) {
+      // FIXME. 这里的唤醒策略需要修改为当 task 完成时，对 task 进行 resume
       task.resume();
     }
 
@@ -29,16 +30,17 @@ class Scheduler {
   }
 
   auto Suspend() {
-    struct awaiter : std::suspend_always {
+    struct Awaiter : std::suspend_always {
       Scheduler& sched_;
 
-      explicit awaiter(Scheduler& sched) : sched_(sched) {}
+      explicit Awaiter(Scheduler& sched) : sched_(sched) {}
+
       void await_suspend(std::coroutine_handle<> coro) const noexcept {
         sched_.tasks_.push_back(coro);
       }
     };
 
-    return awaiter(*this);
+    return Awaiter(*this);
   }
 };
 
