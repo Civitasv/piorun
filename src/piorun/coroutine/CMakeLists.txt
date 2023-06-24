@@ -3,3 +3,7 @@ target_sources(
     PUBLIC
     scheduler.cc
 )
+
+add_subdirectory(async)
+add_subdirectory(awaitable)
+add_subdirectory(emitter)

@@ -66,6 +66,15 @@ struct awaitable {
 - `return_void`: 对应于 `co_return`
 - `await_transform`: 对应于 `co_await xxx`，不过我认为一般用上面的 awaiter 就可以了
 
+## co_await task 流程
+
+1. 执行 await_ready
+2. 执行 await_suspend，存储 handler
+3. 转移所有权
+4. ...
+5. 执行 promise_type.final_suspend
+6. 执行 await_resume
+
 ## Reference
 
 - <https://itnext.io/c-20-coroutines-complete-guide-7c3fc08db89d>

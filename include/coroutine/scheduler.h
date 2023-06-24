@@ -4,45 +4,104 @@
 #include <sys/epoll.h>
 
 #include <coroutine>
+#include <deque>
 #include <list>
 #include <stdexcept>
 
 #include "core/log.h"
+#include "core/smartptr.h"
+#include "coroutine/awaitable/data.h"
+#include "coroutine/awaitable/handoff.h"
+#include "coroutine/awaitable/universal.h"
+#include "coroutine/emitter/base.h"
+#include "utils/concepts.h"
+#include "utils/event_info.h"
+#include "utils/time_fwd.h"
 
 namespace pio {
 auto static logger = pio::Logger::Create("piorun_scheduler.log");
 
-class Scheduler {
- private:
-  std::list<std::coroutine_handle<>> tasks_{};
+/**
+ * @brief The scheduler is a generator style coroutine
+ *        that keeps looping and yielding control to
+ *        coroutines that can run.
+ */
+struct SchedulerTask {
+  static constexpr struct GetPromiseTag {
+  } GetPromise;
 
- public:
-  bool Schedule() {
-    auto task = tasks_.front();
-    tasks_.pop_front();
+  struct promise_type {
+    SchedulerTask get_return_object() { return SchedulerTask{this}; }
+    // 这里堵塞，直到我们手动调用 `SchedulerTask.Run`
+    std::suspend_always initial_suspend() noexcept { return {}; }
+    std::suspend_never final_suspend() noexcept { return {}; }
+    void unhandled_exception() { std::terminate(); }
 
-    if (not task.done()) {
-      // FIXME. 这里的唤醒策略需要修改为当 task 完成时，对 task 进行 resume
-      task.resume();
+    awaitable::Handoff yield_value(awaitable::Data *data) {
+      if (data == nullptr) return awaitable::Handoff(std::noop_coroutine());
+
+      for (auto &em : emitters_) {
+        // 对 data 取消该事件
+        em->NotifyDeparture(data);
+      }
+      // 从 continuation 点继续执行
+      return awaitable::Handoff(data->continuation);
     }
 
-    return not tasks_.empty();
+    auto await_transform(GetPromiseTag) {
+      struct Awaiter : std::suspend_never {
+        promise_type &promise;
+
+        promise_type &await_resume() { return promise; }
+      };
+      return Awaiter{{}, *this};
+    }
+
+    template <typename U>
+    U &&await_transform(U &&awaitable) noexcept {
+      return std::forward<U &&>(awaitable);
+    }
+
+    std::deque<std::coroutine_handle<>> scheduled_;
+    std::vector<Scope<emitter::Base>> emitters_;
+  };
+
+  using Handle = std::coroutine_handle<promise_type>;
+
+  explicit SchedulerTask(promise_type *p)
+      : coro_handle_(Handle::from_promise(*p)) {}
+
+  SchedulerTask(const SchedulerTask &) = delete;
+  SchedulerTask(SchedulerTask &&) = delete;
+  SchedulerTask &operator=(const SchedulerTask &) = delete;
+  SchedulerTask &operator=(SchedulerTask &&) = delete;
+
+  void Schedule(CoroutineWithContinuation auto &coro) {
+    // 将该 coroutine 添加到 Schedule 中
+    coro_handle_.promise().scheduled_.push_back(coro.coro_handle());
+    // 设置该 coroutine 的继续点为当前 handler
+    coro.coro_handle().promise().set_continuation(coro_handle_);
   }
 
-  auto Suspend() {
-    struct Awaiter : std::suspend_always {
-      Scheduler& sched_;
+  void RegisterEmitter(Scope<emitter::Base> emitter);
+  void Run() { coro_handle_.resume(); }
 
-      explicit Awaiter(Scheduler& sched) : sched_(sched) {}
+  awaitable::Universal Event(EventCategory category, EventID id,
+                             Duration timeout);
+  awaitable::Universal Event(EventCategory category, EventID id,
+                             TimePoint deadline = NO_DEADLINE);
+  awaitable::Universal Condition(std::function<bool()> condition,
+                                 Duration timeout);
+  awaitable::Universal Condition(std::function<bool()> condition,
+                                 TimePoint deadline = NO_DEADLINE);
 
-      void await_suspend(std::coroutine_handle<> coro) const noexcept {
-        sched_.tasks_.push_back(coro);
-      }
-    };
-
-    return Awaiter(*this);
-  }
+ private:
+  Handle coro_handle_;
+  void NotifyEmitters(awaitable::Data *);
+  friend void awaitable::NotifyEmitters(awaitable::Data *);
 };
+
+SchedulerTask &MainScheduler();
 
 }  // namespace pio
 

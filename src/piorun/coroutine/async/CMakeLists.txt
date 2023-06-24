@@ -1,0 +1,9 @@
+target_sources(
+    piorun
+    PUBLIC
+    async_accept.cc
+    async_connect.cc
+    async_read.cc
+    async_server.cc
+    async_write.cc
+)

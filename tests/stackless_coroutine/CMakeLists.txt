@@ -1,0 +1,8 @@
+add_executable(test_async_main test_async_main.cc)
+target_link_libraries(test_async_main piorun)
+
+add_executable(test_chainable test_chainable.cc)
+target_link_libraries(test_chainable piorun)
+
+add_executable(test_async_task test_async_task_use_echo_server.cc)
+target_link_libraries(test_async_task piorun)
