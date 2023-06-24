@@ -166,15 +166,6 @@ void SchedulerUsage() {
 // };
 
 int main() {
-  // try {
-  //   Scheduler* scheduler = new Scheduler();
-  //   EchoServer echo_server(scheduler);
-  //   echo_server.Run();
-  // } catch (const std::exception& e) {
-  //   std::cerr << "错误: " << e.what() << std::endl;
-  //   return 1;
-  // }
-
 #if 0  // generator example
   std::vector<int> a = {1, 3, 5, 7};
   std::vector<int> b = {2, 4, 6, 8};
