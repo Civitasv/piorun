@@ -12,9 +12,8 @@ struct FinalContinuation {
   constexpr bool await_ready() const noexcept { return false; }
   std::coroutine_handle<> await_suspend(
       HandleWithContinuation auto caller) const noexcept {
-    // 这里返回在 `await_suspend` 中存储的 continuation
-    // 目的是将控制权转移从 callee（当前协程）
-    // 转移给 caller（调用 co_await 的协程）
+    // 这里返回在 `task.await_suspend` 中存储的 continuation
+    // 目的是将控制权转移到 continuation
     return caller.promise().continuation();
   }
   constexpr void await_resume() const noexcept {}

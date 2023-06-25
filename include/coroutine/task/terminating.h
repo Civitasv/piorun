@@ -8,6 +8,10 @@
 
 namespace pio {
 namespace task {
+/**
+ * @brief 类似于 chainable，但不可以被 co_await，
+ *        可以当作顶层协程返回值使用
+ */
 struct Terminating {
   struct promise_type {
     Terminating get_return_object() { return Terminating{this}; }

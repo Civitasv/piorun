@@ -20,8 +20,8 @@ struct Result {
   friend std::ostream &operator<<(std::ostream &os, const Result &res);
 };
 
-struct Data {
-  Data(std::function<bool()> condition, TimePoint deadline)
+struct Event {
+  Event(std::function<bool()> condition, TimePoint deadline)
       : continuation{std::noop_coroutine()},  // std::noop_coroutine
                                               // 作为占位符使用
         condition(std::move(condition)),
@@ -30,7 +30,7 @@ struct Data {
         deadline(deadline),
         result{} {}
 
-  Data(EventCategory cat, EventID id, TimePoint deadline)
+  Event(EventCategory cat, EventID id, TimePoint deadline)
       : continuation{std::noop_coroutine()},
         condition{nullptr},
         event_category(cat),

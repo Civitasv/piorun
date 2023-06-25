@@ -6,6 +6,10 @@
 
 namespace pio {
 namespace task {
+/**
+ * @brief 由于 initial_suspend 和 final_suspend 都返回 suspend_never
+ *        所以，该协程不会挂起，相当于普通的函数
+ */
 struct Synchronous {
   struct promise_type {
     Synchronous get_return_object() { return {}; }

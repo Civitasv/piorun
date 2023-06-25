@@ -5,7 +5,7 @@
 #include <exception>
 #include <utility>
 
-#include "coroutine/awaitable/data.h"
+#include "coroutine/awaitable/event.h"
 #include "coroutine/awaitable/final_continuation.h"
 #include "utils/concepts.h"
 
@@ -14,7 +14,9 @@ namespace task {
 
 /**
  * @brief 实现 Chainable task
- * 该类型 task 可以按线性执行，类似于传统函数执行方式
+ * 该类型 task 可以被 co_await，通过实现 awaitable interface
+ * 且在 final_suspend 中返回 final_continuation，实现挂起点
+ * 的存储和恢复
  * @see test_chainable.cc
  */
 struct Chainable {

@@ -61,19 +61,29 @@ struct awaitable {
 - `final_suspend`: 指定协程在完成时是否应挂起
 - `get_return_object`: 指定函数返回的数据类型
 - `unhandled_exception`: 指定协程发生异常时的行为
-- `yield_value`: 对应于 `co_yield xxx`
+- `yield_value`: 对应于 `co_yield xxx`，相当于 `co_await promise.yield_value(xxx)`
 - `return_value`: 对应于 `co_return xxx`
 - `return_void`: 对应于 `co_return`
 - `await_transform`: 对应于 `co_await xxx`，不过我认为一般用上面的 awaiter 就可以了
 
 ## co_await task 流程
 
-1. 执行 await_ready
-2. 执行 await_suspend，存储 handler
-3. 转移所有权
+1. 执行 await_ready，如果返回 true，则执行步骤 2
+2. 执行 await_suspend，参数为当前 handler，返回想要跳转到的 handler
+3. 转移所有权到 handler（就是上一步的返回值）
 4. ...
 5. 执行 promise_type.final_suspend
 6. 执行 await_resume
+
+## 调度器设计
+
+通过 emitter 添加事件，通过 scheduler 解决事件，从而实现在协程中同时运行服务器和客户端。
+
+这样，不会使服务端和客户端处于死循环状态，而是会形成如下的函数链。
+
+client.connect() -> server.accept() -> client.write() -> server.read() -> ...
+
+从而，使得二者可以在一个线程（多个协程）上同时执行服务端和客户端。
 
 ## Reference
 

@@ -1,7 +1,7 @@
 #ifndef PIORUN_COROUTINE_EMITTER_BASE_H_
 #define PIORUN_COROUTINE_EMITTER_BASE_H_
 
-#include "coroutine/awaitable/data.h"
+#include "coroutine/awaitable/event.h"
 
 namespace pio {
 namespace emitter {
@@ -12,14 +12,14 @@ namespace emitter {
  *         condition evaluated to true, timeout expired, etc.)
  */
 struct Base {
-  virtual awaitable::Data *Emit() = 0;
-  // Register the event to be wathced.
-  virtual void NotifyArrival(awaitable::Data *) = 0;
+  virtual awaitable::Event *Emit() = 0;  ///< 处理一个事件
+  // Register the event to be watched.
+  virtual void NotifyArrival(awaitable::Event *) = 0;
   // Unregister the event.
-  virtual void NotifyDeparture(awaitable::Data *) = 0;
+  virtual void NotifyDeparture(awaitable::Event *) = 0;
   virtual bool IsEmpty() = 0;
 
-  virtual ~Base() {};
+  virtual ~Base(){};
 };
 
 }  // namespace emitter

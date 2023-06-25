@@ -3,32 +3,32 @@
 
 #include <coroutine>
 
-#include "coroutine/awaitable/data.h"
+#include "coroutine/awaitable/event.h"
 #include "utils/concepts.h"
 
 namespace pio {
 namespace awaitable {
 
-void NotifyEmitters(Data *);
+void NotifyEmitters(Event *);
 
 struct Universal {
-  Data data_;
+  Event event_;
   std::coroutine_handle<> handle_;
 
   bool await_ready() {
-    if (!data_.condition) return false;
-    bool result = data_.condition();
-    if (result) data_.result.result_type = EventType::WAKEUP;
+    if (!event_.condition) return false;
+    bool result = event_.condition();
+    if (result) event_.result.result_type = EventType::WAKEUP;
     return result;
   }
 
   std::coroutine_handle<> await_suspend(std::coroutine_handle<> caller) {
-    data_.continuation = caller;
-    NotifyEmitters(&data_);
+    event_.continuation = caller;
+    NotifyEmitters(&event_); ///< 事件来了，需要重新注册
     return handle_;
   }
 
-  Result await_resume() { return data_.result; }
+  Result await_resume() { return event_.result; }
 };
 
 }  // namespace awaitable

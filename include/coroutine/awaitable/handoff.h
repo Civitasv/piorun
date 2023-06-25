@@ -3,12 +3,15 @@
 
 #include <coroutine>
 
-#include "coroutine/awaitable/data.h"
+#include "coroutine/awaitable/event.h"
 #include "utils/concepts.h"
 
 namespace pio {
 namespace awaitable {
 
+/**
+ * @brief 将控制权交给传入的 handle
+ */
 struct Handoff {
   Handoff(std::coroutine_handle<> handle) : handle_(handle) {}
   constexpr bool await_ready() const noexcept { return false; }
