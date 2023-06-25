@@ -17,9 +17,7 @@ task::Chainable AsyncOP(bool flag) {
 }
 
 task::Synchronous Demo() {
-  auto a = AsyncOP(true);
-  auto ret = co_await a;
-  if (!ret) {
+  if (auto ret = co_await AsyncOP(true); !ret) {
     std::cerr << "Asynchronous operation failed: " << ret.err_message << "\n";
   }
   if (auto ret = co_await AsyncOP(false); !ret) {

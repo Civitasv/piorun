@@ -27,8 +27,9 @@ auto static logger = pio::Logger::Create("piorun_scheduler.log");
  *        coroutines that can run.
  */
 struct Scheduler {
+  // 用于获取当前的 promise_type 实例
   static constexpr struct GetPromiseTag {
-  } GetPromise;
+  } GetPromise {};
 
   struct promise_type {
     Scheduler get_return_object() { return Scheduler{this}; }
