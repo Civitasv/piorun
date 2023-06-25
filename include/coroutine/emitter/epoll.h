@@ -5,25 +5,30 @@
 #include <unordered_map>
 
 #include "base.h"
-#include "coroutine/awaitable/data.h"
+#include "coroutine/awaitable/event.h"
 
 namespace pio {
 namespace emitter {
 
 struct Epoll : public Base {
-  static int epoll_fd;
+  static int epoll_fd;  ///< epoll file descriptor.
 
   Epoll();
-  awaitable::Data *Emit() override;
-  void NotifyArrival(awaitable::Data *data) override;
-  void NotifyDeparture(awaitable::Data *data) override;
+
+  /**
+   * @brief 使用 epoll 机制监听 awaiting_ 中的 fd
+   *        若有事件就绪，则返回该事件，否则返回 nullptr
+   * @return awaitable::Data*
+   */
+  awaitable::Event *Emit() override;
+  void NotifyArrival(awaitable::Event *event) override;
+  void NotifyDeparture(awaitable::Event *event) override;
   bool IsEmpty() override;
 
   virtual ~Epoll() {}
 
-
  private:
-  std::unordered_map<int, awaitable::Data *> awaiting_;
+  std::unordered_map<int, awaitable::Event *> awaiting_;  ///< fd->data
 };
 
 }  // namespace emitter

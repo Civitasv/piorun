@@ -12,6 +12,8 @@ task::Chainable AsyncAccept(
       co_return awaitable::Result{EventType::ERROR, errno,
                                   "Failed to accept connection to server."};
 
+    // 将控制权转移给 scheduler（通过 universal 中的 await_suspend）
+    // 同时，将该事件继续加入 emitter 中的事件监听队列
     auto status = co_await MainScheduler().Event(EventCategory::EPOLL, s->fd_,
                                                  s.deadline());
     if (status.result_type != EventType::WAKEUP) co_return status;

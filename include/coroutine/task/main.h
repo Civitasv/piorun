@@ -6,6 +6,11 @@
 
 namespace pio {
 namespace task {
+/**
+ * @brief 仅在 final_suspend 挂起，promise 不会被自动销毁
+ *        我们将 co_return 返回的值存储在 ret_ 中，然后通过重载
+ *        运算符，将其强转为 int
+ */
 struct Main {
   struct promise_type {
     Main get_return_object() { return Main{this}; }

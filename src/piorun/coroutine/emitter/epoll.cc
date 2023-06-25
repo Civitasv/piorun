@@ -38,7 +38,7 @@ Epoll::Epoll() {
                             "Failed to create epoll socket.");
 }
 
-awaitable::Data *Epoll::Emit() {
+awaitable::Event *Epoll::Emit() {
   epoll_event ev;
   while (true) {
     int ret = epoll_wait(epoll_fd, &ev, 1, 0);
@@ -52,15 +52,15 @@ awaitable::Data *Epoll::Emit() {
     if (it == awaiting_.end()) continue;
 
     // epoll_event_dump(ev);
-    if (ev.events & EPOLLERR) {
+    if (ev.events & EPOLLERR) {  // 错误
       it->second->result.err = GetErrno(ev.data.fd);
       it->second->result.result_type = EventType::ERROR;
       it->second->result.err_message = "Asynchronous socket error.";
-    } else if (ev.events & (EPOLLHUP | EPOLLRDHUP)) {
+    } else if (ev.events & (EPOLLHUP | EPOLLRDHUP)) {  // 读或写关闭
       it->second->result.err = 0;
       it->second->result.err_message = "";
       it->second->result.result_type = EventType::HANGUP;
-    } else if (ev.events & (EPOLLIN | EPOLLOUT)) {
+    } else if (ev.events & (EPOLLIN | EPOLLOUT)) {  // 读或写事件
       it->second->result.err = 0;
       it->second->result.err_message = "";
       it->second->result.result_type = EventType::WAKEUP;
@@ -69,12 +69,12 @@ awaitable::Data *Epoll::Emit() {
   }
 }
 
-void Epoll::NotifyArrival(awaitable::Data *data) {
+void Epoll::NotifyArrival(awaitable::Event *data) {
   if (data->event_category != EventCategory::EPOLL) return;
   awaiting_.emplace(data->event_id, data);
 }
 
-void Epoll::NotifyDeparture(awaitable::Data *data) {
+void Epoll::NotifyDeparture(awaitable::Event *data) {
   if (data->event_category != EventCategory::EPOLL) return;
   awaiting_.erase(data->event_id);
 }

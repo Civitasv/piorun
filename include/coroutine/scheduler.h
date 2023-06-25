@@ -10,7 +10,7 @@
 
 #include "core/log.h"
 #include "core/smartptr.h"
-#include "coroutine/awaitable/data.h"
+#include "coroutine/awaitable/event.h"
 #include "coroutine/awaitable/handoff.h"
 #include "coroutine/awaitable/universal.h"
 #include "coroutine/emitter/base.h"
@@ -26,26 +26,26 @@ auto static logger = pio::Logger::Create("piorun_scheduler.log");
  *        that keeps looping and yielding control to
  *        coroutines that can run.
  */
-struct SchedulerTask {
+struct Scheduler {
   static constexpr struct GetPromiseTag {
   } GetPromise;
 
   struct promise_type {
-    SchedulerTask get_return_object() { return SchedulerTask{this}; }
+    Scheduler get_return_object() { return Scheduler{this}; }
     // 这里堵塞，直到我们手动调用 `SchedulerTask.Run`
     std::suspend_always initial_suspend() noexcept { return {}; }
     std::suspend_never final_suspend() noexcept { return {}; }
     void unhandled_exception() { std::terminate(); }
 
-    awaitable::Handoff yield_value(awaitable::Data *data) {
-      if (data == nullptr) return awaitable::Handoff(std::noop_coroutine());
+    awaitable::Handoff yield_value(awaitable::Event *event) {
+      if (event == nullptr) return awaitable::Handoff(std::noop_coroutine());
 
       for (auto &em : emitters_) {
-        // 对 data 取消该事件
-        em->NotifyDeparture(data);
+        // 取消对 事件 的监听
+        em->NotifyDeparture(event);
       }
       // 从 continuation 点继续执行
-      return awaitable::Handoff(data->continuation);
+      return awaitable::Handoff(event->continuation);
     }
 
     auto await_transform(GetPromiseTag) {
@@ -62,19 +62,22 @@ struct SchedulerTask {
       return std::forward<U &&>(awaitable);
     }
 
+    // 要调度的任务
     std::deque<std::coroutine_handle<>> scheduled_;
+    // 每个任务会生产多个事件，这些事件会加入到 emitter 的事件监听队列
+    // 每一次，emitter 会调用 Emit，处理队列中的一个事件，并返回事件处理结果
     std::vector<Scope<emitter::Base>> emitters_;
   };
 
   using Handle = std::coroutine_handle<promise_type>;
 
-  explicit SchedulerTask(promise_type *p)
+  explicit Scheduler(promise_type *p)
       : coro_handle_(Handle::from_promise(*p)) {}
 
-  SchedulerTask(const SchedulerTask &) = delete;
-  SchedulerTask(SchedulerTask &&) = delete;
-  SchedulerTask &operator=(const SchedulerTask &) = delete;
-  SchedulerTask &operator=(SchedulerTask &&) = delete;
+  Scheduler(const Scheduler &) = delete;
+  Scheduler(Scheduler &&) = delete;
+  Scheduler &operator=(const Scheduler &) = delete;
+  Scheduler &operator=(Scheduler &&) = delete;
 
   void Schedule(CoroutineWithContinuation auto &coro) {
     // 将该 coroutine 添加到 Schedule 中
@@ -86,6 +89,9 @@ struct SchedulerTask {
   void RegisterEmitter(Scope<emitter::Base> emitter);
   void Run() { coro_handle_.resume(); }
 
+  // 这里均返回 awaitable::Universal
+  // 而在其中的 await_suspend 方法中，会调用 NotifyEmitters
+  // 从而将事件添加到 emitters 事件队列之中
   awaitable::Universal Event(EventCategory category, EventID id,
                              Duration timeout);
   awaitable::Universal Event(EventCategory category, EventID id,
@@ -97,11 +103,11 @@ struct SchedulerTask {
 
  private:
   Handle coro_handle_;
-  void NotifyEmitters(awaitable::Data *);
-  friend void awaitable::NotifyEmitters(awaitable::Data *);
+  void NotifyEmitters(awaitable::Event *);
+  friend void awaitable::NotifyEmitters(awaitable::Event *);
 };
 
-SchedulerTask &MainScheduler();
+Scheduler &MainScheduler();
 
 }  // namespace pio
 

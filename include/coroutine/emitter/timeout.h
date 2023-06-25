@@ -4,25 +4,28 @@
 #include <set>
 
 #include "base.h"
-#include "coroutine/awaitable/data.h"
+#include "coroutine/awaitable/event.h"
 
 namespace pio {
 namespace emitter {
 
+/**
+ * @brief 超时事件监听
+ */
 struct Timeout : public Base {
   Timeout() : queue_(CMPDeadline) {}
-  awaitable::Data *Emit() override;
-  void NotifyArrival(awaitable::Data *data) override;
-  void NotifyDeparture(awaitable::Data *data) override;
+  awaitable::Event *Emit() override;
+  void NotifyArrival(awaitable::Event *event) override;
+  void NotifyDeparture(awaitable::Event *event) override;
   bool IsEmpty() override;
 
   virtual ~Timeout() {}
 
  private:
-  static bool CMPDeadline(awaitable::Data *l, awaitable::Data *r);
+  static bool CMPDeadline(awaitable::Event *l, awaitable::Event *r);
 
-  // 一个 data 可能注册了多个 Timeout 事件
-  std::multiset<awaitable::Data *, decltype(&CMPDeadline)> queue_;
+  // 相同的 event 可重复添加
+  std::multiset<awaitable::Event *, decltype(&CMPDeadline)> queue_;
 };
 
 }  // namespace emitter

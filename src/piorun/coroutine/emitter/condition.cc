@@ -5,7 +5,7 @@
 namespace pio {
 namespace emitter {
 
-awaitable::Data *Condition::Emit() {
+awaitable::Event *Condition::Emit() {
   auto it =
       std::ranges::find_if(awaiting_, [](auto *d) { return d->condition(); });
   if (it == awaiting_.end()) return nullptr;
@@ -15,13 +15,13 @@ awaitable::Data *Condition::Emit() {
   return *it;
 }
 
-void Condition::NotifyArrival(awaitable::Data *data) {
+void Condition::NotifyArrival(awaitable::Event *data) {
   if (data->condition) {
     awaiting_.insert(data);
   }
 }
 
-void Condition::NotifyDeparture(awaitable::Data *data) {
+void Condition::NotifyDeparture(awaitable::Event *data) {
   if (data->condition) {
     awaiting_.erase(data);
   }
