@@ -68,7 +68,7 @@ struct awaitable {
 
 ## co_await task 流程
 
-1. 执行 await_ready，如果返回 true，则执行步骤 2
+1. 执行 await_ready，如果返回 false，则执行步骤 2
 2. 执行 await_suspend，参数为当前 handler，返回想要跳转到的 handler
 3. 转移所有权到 handler（就是上一步的返回值）
 4. ...
@@ -77,11 +77,11 @@ struct awaitable {
 
 ## 调度器设计
 
-通过 emitter 添加事件，通过 scheduler 解决事件，从而实现在协程中同时运行服务器和客户端。
+通过 emitter 注册事件，每个 emitter 中保存一个事件队列，通过 scheduler resolve 事件，从而实现在协程中同时运行服务器和客户端。
 
 这样，不会使服务端和客户端处于死循环状态，而是会形成如下的函数链。
 
-client.connect() -> server.accept() -> client.write() -> server.read() -> ...
+server.accept() -> client.connect() -> server.accept() -> client.write() -> server.read() -> ...
 
 从而，使得二者可以在一个线程（多个协程）上同时执行服务端和客户端。
 
