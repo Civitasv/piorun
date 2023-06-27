@@ -77,7 +77,7 @@ struct awaitable {
 
 ## 调度器设计
 
-通过 emitter 注册事件，每个 emitter 中保存一个事件队列，通过 scheduler resolve 事件，从而实现在协程中同时运行服务器和客户端。
+通过 emitter 注册事件，失败的事件不会卡死，而会添加到 emitter 之中，每个 emitter 中保存一个事件队列，通过 scheduler resolve 事件，从而实现在协程中同时运行服务器和客户端。
 
 这样，不会使服务端和客户端处于死循环状态，而是会形成如下的函数链。
 

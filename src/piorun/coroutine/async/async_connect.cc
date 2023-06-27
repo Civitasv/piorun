@@ -8,6 +8,7 @@
 namespace pio {
 
 task::Chainable AsyncConnect(SocketView s) {
+  // 此时需要服务端 accept 之后才会返回 success
   int ret = connect(s->fd_, s->addr_.addr(), s->addr_.GetLen());
   if (ret == -1 && errno != EINPROGRESS)
     co_return awaitable::Result{EventType::ERROR, errno,
