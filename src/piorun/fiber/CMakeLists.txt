@@ -3,4 +3,5 @@ target_sources(
     coctx_swap.S
     coctx.cpp
     fiber.cpp
+    syshook.cpp
 )

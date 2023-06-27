@@ -9,7 +9,7 @@ coctx_swap:
     movq %rcx, 80(%rdi)   # 保存 %rcx 到 curr->ctx.regs[10]
     movq %rdx, 72(%rdi)   # 保存 %rdx 到 curr->ctx.regs[9]
     movq %rsi, 64(%rdi)   # 保存 %rsi 到 curr->ctx.regs[8]
-	movq %rdi, 56(%rdi)   # 保存 %rdi 到 curr->ctx.regs[7]
+    movq %rdi, 56(%rdi)   # 保存 %rdi 到 curr->ctx.regs[7]
     movq %rbp, 48(%rdi)   # 保存 %rbp 到 curr->ctx.regs[6]
     movq %r8 , 40(%rdi)   # 保存 %r8  到 curr->ctx.regs[5]
     movq %r9 , 32(%rdi)   # 保存 %r9  到 curr->ctx.regs[4]
@@ -31,4 +31,4 @@ coctx_swap:
     movq 80(%rsi), %rcx   # 恢复 pending_co 的 %rcx
     movq 88(%rsi), %rbx   # 恢复 pending_co 的 %rbx
     movq 64(%rsi), %rsi   # 恢复 pending_co 的 %rsi
-	ret
+    ret

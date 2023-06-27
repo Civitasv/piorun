@@ -1,7 +1,10 @@
 #include <cstdio>
 #include <chrono>
+#include <thread>
 #include <unistd.h>
 #include <iostream>
+#include <iomanip>
+#include <signal.h>
 
 #include "fiber/fiber.h"
 
@@ -29,8 +32,9 @@ struct Generator {
     Generator* generator;
   };
   
-  Generator(void*(*pfn)(void*)) : value() {
-    this->co = new StCoRoutine(pfn, this);
+  Generator(std::function<void(Generator&)> pfn) : value() {
+    auto cb = std::bind(pfn, std::ref(*this));
+    this->co = new Fiber(cb);
     this->co->Resume();
   }
 
@@ -41,52 +45,70 @@ struct Generator {
 
   void yield(const T& x) {
     value = x;
-    this_coroutine::yield();
+    this_fiber::yield();
   }
 
   T value;
-  StCoRoutine* co;
+  Fiber* co;
 
 };
 
-void* fibonacci(void* arg) {
-  Generator<int>* g = (Generator<int>*)(arg);
+void fibonacci(Generator<int>& g) {
   int a = 0, b = 1;
   for (int i = 0; i < 10; i++) {
-    g->yield(a);
+    g.yield(a);
     b = a + b;
     a = b - a;
   }
-  return 0;
 }
 
-void* sleepCo(void*) {
-  while (true) {
-    printf("current fiber: %llx\n", this_coroutine::get_id());
-    this_coroutine::sleep_for(1s);
-  }
-  return 0;
+void printInfo() {
+  time_t now = time(NULL);
+  tm t;
+  localtime_r(&now, &t);
+  // auto id = std::this_thread::get_id();
+  auto id = this_fiber::get_thread_id();
+  printf(
+    "[%02d:%02d:%02d]: thread: %d fiber: %llu\n", t.tm_hour, t.tm_min, t.tm_sec, id, this_fiber::get_id()
+  );
 }
 
+void sleepCo(int x) {
+  this_fiber::sleep_for(seconds{x});
+  printInfo();
+}
+
+int stop = 0;
+
+void sighdr(int x) {
+  stop = 1;
+}
 
 int main(int argc, const char* agrv[]) {
-
+  
+  // 1. test fiber switch.
+  printf("test fib  : ");
   for (auto&& x : Generator<int>{fibonacci}) {
-    std::cout << x << std::endl;
+    printf("%d ", x);
+  }
+  printf("\n");
+
+  // 2. test scheduler.
+  for (int i = 0; i < 10; i++) {
+    go std::bind(sleepCo, i + 1);
   }
 
-  std::vector<pio::fiber::StCoRoutine> fibers;
-  fibers.reserve(5);
-
-  for (int i = 0; i < 5; i++) {
-    fibers.emplace_back(sleepCo, nullptr);
-  }
-
-  for (auto&& fiber : fibers) {
-    fiber.Resume();
-  }
-
-  co_eventloop(nullptr, nullptr);
+  // 3. test recursive.
+  go [] {
+    printInfo();
+    go [] {
+      printInfo();
+      go [] {
+        this_fiber::sleep_for(15s);
+        printInfo();
+      };
+    };
+  };
 
   return 0;
 

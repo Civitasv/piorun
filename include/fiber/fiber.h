@@ -12,109 +12,173 @@
 #define PIORUN_FIBER_FIBER_H_
 
 #include "coctx.h"
+#include "core/mutex.h"
 
+#include <deque>
+#include <mutex>
+#include <atomic>
+#include <thread>
 #include <cstdio>
 #include <chrono>
 #include <functional>
 #include <type_traits>
 
-// TODO: move
-#if defined(__GNUC__) && (__GNUC__ > 3 ||(__GNUC__ == 3 && __GNUC_MINOR__ >= 1))
-# define ALWAYS_INLINE __attribute__ ((always_inline)) inline 
-#else
-# define ALWAYS_INLINE inline
-#endif
-
-
 namespace pio::fiber {
-
-struct __go {
-
-  __go(const char* file, int lineno)
-  : file_(file), lineno_(lineno) {}
-
-  template<typename Function>
-  ALWAYS_INLINE void operator-(Function) {
-    printf("hello fiber\n");
-    printf("fileName: %s\n", file_);
-    printf("lineNo: %d\n", lineno_);
-  }
-
-  const char* file_;
-  int lineno_;
-
-};
-
   
 /**
  * 线程所管理的协程的运行环境
  * 一个线程只有一个这个属性
  */
-struct StCoRoutineEnv;
+class FiberEnvironment;
 
-struct StStackMem {
-  int   stackSize_; /*> 栈的大小 */
-  char*        bp_; /*> 栈基址 */
-  char*    buffer_; /*> 栈顶，stack_bp = stack_buffer + stack_size */
+class Fiber {
 
-  StStackMem(int size = 128 * 1024) : stackSize_(size) {
-    this->buffer_ = new char[stackSize_];
-    this->bp_ = buffer_ + stackSize_;
-  }
+  friend class FiberEnvironment;
+  friend class condition_variable;
+  friend int GoRoutine(Fiber* co, void*);
 
- ~StStackMem() {
-    delete[] buffer_;
-    buffer_ = nullptr;
-    bp_ = nullptr;
-  }
-
-};
-
-class StCoRoutine {
-  friend class StCoRoutineEnv;
  public:
-  using pfn_co_routine_t = void*(*)(void*);
+  Fiber(const std::function<void()>& pfn = nullptr);
+  Fiber(const Fiber& rhs) = default;
+  Fiber(Fiber&& rhs) noexcept = default;
+ ~Fiber();
 
-  StCoRoutine(pfn_co_routine_t pfn, void* arg);
- ~StCoRoutine();
+  Fiber& operator=(const Fiber& rhs) = default;
+  Fiber& operator=(Fiber&& rhs) noexcept = default;
 
   void Yield ();
   void Resume();
-  void Reset ();
-  bool Done() const;
+  void Reset (const std::function<void()>& pfn = nullptr);
+  void Reset (std::function<void()>&& pfn = nullptr);
+  bool Done() const { return cEnd_ != 0; }
+  bool IsMain() const { return cIsMain_ == 1; }
+  bool IsHooked() const { return cEnableSysHook_ == 1; }
+  void EnableHook() { cEnableSysHook_ = 1; }
+  void DisableHook() { cEnableSysHook_ = 0; }
 
  private:
-  StCoRoutineEnv*     env_; /*> 协程所在的运行环境，即该协程所属的协程管理器 */
-  pfn_co_routine_t    pfn_; /*> 协程对应的函数 */
-  void*               arg_; /*> 协程对应的函数的参数 */
-  StCoContext         ctx_; /*> 协程上下文，包括寄存器和栈 */
+  FiberEnvironment*     env_; /*> 协程所在的运行环境，即该协程所属的协程管理器 */
+  std::function<void()> pfn_; /*> 协程对应的函数 */
+  FiberContext          ctx_; /*> 协程上下文，包括寄存器和栈 */
 
-  char             cStart_; /*> 该协程是否已经开始运行 */
-  char               cEnd_; /*> 该协程是否已经执行完毕 */
-  char            cIsMain_; /*> 该协程是否是主协程 */
-  char     cEnableSysHook_; /*> 是否打开钩子标识，默认关闭 */
-
-  StStackMem*   stack_mem_; /*> 指向栈内存 */
-  char*          stack_sp_; /*> 当前协程的栈的栈顶 */
+  char               cStart_; /*> 该协程是否已经开始运行 */
+  char                 cEnd_; /*> 该协程是否已经执行完毕 */
+  char              cIsMain_; /*> 该协程是否是主协程 */
+  char       cEnableSysHook_; /*> 是否打开钩子标识，默认打开 */
+  char          cCreateByEnv;
 
  private:
-  StCoRoutineEnv* CoGetCurrThreadEnv() const;
-  void CoInitCurrThreadEnv();
-  void SwapContext(StCoRoutine* pendingCo);
-
-  friend int Run(StCoRoutine* co, void*);
+  Fiber(bool);
+  void SwapContext(Fiber* pendingCo);
 
 };
 
-// TODO: modify.
-typedef int (*pfn_co_eventloop_t)(void *);
+class condition_variable {
 
-void co_eventloop(pfn_co_eventloop_t pfn, void *arg);
+ public:
+  void wait();
+
+  // template<typename _Predicate>
+  // void wait(_Predicate pred);
+
+  void notify_one();
+  void notify_all();
+
+ private:
+  std::deque<Fiber*> waiters;
+  SpinLock               mtx;
+
+};
+
+class mutex {
+
+ public:
+  mutex() : locked(false) {}
+ ~mutex() {}
+  mutex(const mutex&) = delete;
+  mutex& operator=(const mutex&) = delete;
+
+  void lock();
+  bool try_lock();
+  void unlock();
+
+ private:
+  std::deque<Fiber*> waiters;
+  SpinLock               mtx;
+  bool                locked;
+};
+
+class semaphore {
+
+ public:
+  semaphore(size_t count = 0) : count(count) {}
+ ~semaphore() {}
+  semaphore(const semaphore&) = delete;
+  semaphore& operator=(const semaphore&) = delete;
+
+  void wait();
+  bool try_wait();
+  void signal();
+
+ private:
+  std::deque<Fiber*> waiters;
+  SpinLock               mtx;
+  size_t               count;
+};
+
+class FiberScheduler {
+
+ private:
+  FiberScheduler();
+  FiberScheduler(const FiberScheduler&) = delete;
+  FiberScheduler(FiberScheduler&&) = delete;
+ ~FiberScheduler();
+
+ public:
+  static FiberScheduler& GetInstance();
+  void Start(std::function<int(void)> pfn = nullptr);
+
+};
+
+class MultiThreadFiberScheduler {
+
+ private:
+  MultiThreadFiberScheduler(int threadNum = 4);
+  MultiThreadFiberScheduler(const MultiThreadFiberScheduler&) = delete;
+  MultiThreadFiberScheduler(MultiThreadFiberScheduler&&) = delete;
+ ~MultiThreadFiberScheduler();
+
+ public:
+  static MultiThreadFiberScheduler& GetInstance();
+  void Schedule(const std::function<void()>& fn);
+
+ private:
+  
+  std::deque<std::function<void()>> commTasks;
+  SpinLock mutex;
+  std::deque<std::thread> threads;
+  std::atomic_bool* wq;
+  const int threadNum;
+  std::atomic_bool stop;
+  static const int TASK_THRESHOLD = 1;
+};
+
+struct __go {
+
+  __go() {}
+
+ ~__go() {}
+
+  inline void operator-(const std::function<void()>& fn) {
+    MultiThreadFiberScheduler::GetInstance().Schedule(fn);
+  }
+
+};
 
 }
 
 
-namespace pio::this_coroutine {
+namespace pio::this_fiber {
 
 /**
  * @brief get ID of current coroutine.
@@ -128,21 +192,9 @@ unsigned long long get_id();
  * 
  * @return pio::fiber::StCoRoutine* 
  */
-pio::fiber::StCoRoutine* co_self();
+pio::fiber::Fiber* co_self();
 
-/**
- * @brief sleep current coroutine.
- * 
- * @param ms sleep time
- */
-void sleep_for(const std::chrono::milliseconds& ms);
-
-/**
- * @brief sleep current coroutine.
- * 
- * @param time_point
- */
-void sleep_until(const std::chrono::high_resolution_clock::time_point& time_point);
+int get_thread_id();
 
 /**
  * @brief yield current coroutine.
@@ -159,8 +211,22 @@ void enable_system_hook();
  */
 void disable_system_hook();
 
+/**
+ * @brief sleep current coroutine.
+ * 
+ * @param ms sleep time
+ */
+void sleep_for(const std::chrono::milliseconds& ms);
+
+/**
+ * @brief sleep current coroutine.
+ * 
+ * @param time_point
+ */
+void sleep_until(const std::chrono::high_resolution_clock::time_point& time_point);
+
 }
 
-#define go pio::fiber::__go(__FILE__, __LINE__)-
+#define go pio::fiber::__go()-
 
 #endif

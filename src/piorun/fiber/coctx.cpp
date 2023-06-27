@@ -1,7 +1,10 @@
 #include "fiber/coctx.h"
 
+#include <new>
 #include <stdio.h>
 #include <string.h>
+
+namespace pio::fiber {
 
 // low | regs[0] : r15 |
 //     | regs[1] : r14 |
@@ -22,16 +25,54 @@ enum {
   kRSP = 12,
 };
 
-namespace pio::fiber {
-
-StCoContext::StCoContext(StCoContextFunc pfn, const void* s1, const void* s2)
-: regs_{}, size_{}, sp_{} {
-  Make(pfn, s1, s2);
+FiberContext::StackMemory::StackMemory(int size) : stackSize_(size) {
+  this->buffer_ = new char[stackSize_];
+  this->bp_ = buffer_ + stackSize_;
 }
 
-int StCoContext::Make(StCoContextFunc pfn, const void *s1, const void *s2) {
+FiberContext::StackMemory::~StackMemory() {
+  delete[] buffer_;
+  buffer_ = nullptr;
+  bp_ = nullptr;
+}
+
+FiberContext::FiberContext() 
+: regs_{}, stack_(new StackMemory()) {}
+
+FiberContext::FiberContext(const FiberContext& rhs) {
+  memcpy(regs_, rhs.regs_, sizeof(regs_));
+  this->stack_ = new StackMemory(*rhs.stack_);
+}
+
+FiberContext::FiberContext(FiberContext&& rhs) noexcept {
+  memcpy(regs_, rhs.regs_, sizeof(regs_));
+  this->stack_ = rhs.stack_;
+  rhs.stack_ = nullptr;
+}
+
+FiberContext::~FiberContext() {
+  delete stack_;
+  stack_ = nullptr;
+}
+
+FiberContext& FiberContext::operator=(const FiberContext& rhs) {
+  if (&rhs == this) return *this;
+  this->~FiberContext();
+  new (this) FiberContext(rhs);
+  return *this;
+}
+
+FiberContext& FiberContext::operator=(FiberContext&& rhs) {
+  if (&rhs == this) return *this;
+  this->~FiberContext();
+  new (this) FiberContext(static_cast<FiberContext&&>(rhs));
+  return *this;
+}
+
+
+int FiberContext::Make(void*(*pfn)(void*, void*), const void *s1, const void *s2) {
   // 这里腾出8字节，用于存放返回地址，新得到的sp指针开始向下生长的栈就是新的过程的栈基址了，因为返回地址属于调用者的栈帧而非被调用者的
-  char* sp = this->sp_ + this->size_ - sizeof(void*);
+  char* sp = this->stack_->bp_ - sizeof(void*);
   // 这里是为了16字节对齐（见深入理解计算机系统），过程调用的栈基址进行16字节对齐
   // -16LL = fffffffffffffff0
   sp = (char*)((unsigned long)sp & -16LL);
