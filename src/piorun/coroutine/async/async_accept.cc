@@ -1,6 +1,5 @@
 #include "coroutine/async/async_accept.h"
 
-#include "coroutine/async/async_server.h"
 #include "coroutine/scheduler.h"
 
 namespace pio {
@@ -22,10 +21,7 @@ task::Chainable AsyncAccept(
   auto handle = connection_handler(Socket::AcceptedSocket(ret));
   MainScheduler().Schedule(handle);
 
-  auto server_handle = AsyncServer(s, connection_handler);
-  MainScheduler().Schedule(server_handle);
-
-  co_return awaitable::Result{};
+  co_return awaitable::Result{EventType::WAKEUP, 0, ""};
 }
 
 }  // namespace pio
