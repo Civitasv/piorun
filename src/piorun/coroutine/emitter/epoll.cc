@@ -46,7 +46,7 @@ awaitable::Event *Epoll::Emit() {
       throw std::system_error(errno, std::system_category(),
                               "Failed to fetch epoll event.");
 
-    if (ret == 0) return nullptr;
+    if (ret == 0) return nullptr; // timeout
 
     auto it = awaiting_.find(ev.data.fd);
     if (it == awaiting_.end()) continue;

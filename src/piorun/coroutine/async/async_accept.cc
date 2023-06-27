@@ -20,7 +20,8 @@ task::Chainable AsyncAccept(
   }
   auto handle = connection_handler(Socket::AcceptedSocket(ret));
   MainScheduler().Schedule(handle);
-  co_return awaitable::Result{};
+
+  co_return awaitable::Result{EventType::WAKEUP, 0, ""};
 }
 
 }  // namespace pio
