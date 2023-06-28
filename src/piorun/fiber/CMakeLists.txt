@@ -1,7 +1,7 @@
 target_sources(
     piorun PUBLIC
     coctx_swap.S
-    coctx.cpp
-    fiber.cpp
-    syshook.cpp
+    coctx.cc
+    fiber.cc
+    syshook.cc
 )
