@@ -70,7 +70,7 @@ void EchoServer() {
 
   while (!stop) {
     sockaddr_in addr;
-    socklen_t len;
+    socklen_t len = sizeof(addr);
     
     int clifd = accept(listenfd, (sockaddr*)&addr, &len);
     
@@ -82,9 +82,15 @@ void EchoServer() {
       pf.events = (POLLIN | POLLERR | POLLHUP);
       poll(&pf, 1, 1000);
       continue;
+    } else {
+      char buf[32];
+      memset(buf, 0, 32);
+      inet_ntop(AF_INET, &addr.sin_addr, buf, 32);
+      printf("%s\n", buf);
     }
 
     go [clifd] {
+      printf("new session at: [%d|%llx]\n", this_fiber::get_thread_id(), this_fiber::get_id());
       char buf[1024];
       while (true) {
         memset(buf, 0, sizeof(buf));

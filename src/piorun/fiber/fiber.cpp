@@ -469,16 +469,13 @@ int GoRoutine(Fiber* co, void*) {
 }
 
 Fiber::Fiber(bool)
-: env_(nullptr), pfn_(nullptr),
-  cStart_(0), cEnd_(0), cIsMain_(1), cEnableSysHook_(1), cCreateByEnv(0) {}
+: pfn_(nullptr), cStart_(0), cEnd_(0), cIsMain_(1), cEnableSysHook_(0), cCreateByEnv(0) {}
 
 Fiber::Fiber(const std::function<void()>& pfn)
-: env_(FiberEnvironment::GetInstance()), pfn_(pfn),
-  cStart_(0), cEnd_(0), cIsMain_(0), cEnableSysHook_(1), cCreateByEnv() {}
+: pfn_(pfn), cStart_(0), cEnd_(0), cIsMain_(0), cEnableSysHook_(1), cCreateByEnv() {}
 
 Fiber::~Fiber() {
   pfn_ = nullptr;
-  env_ = nullptr;
   cStart_ = cEnd_ = 0;
 }
 
@@ -589,6 +586,104 @@ void mutex::unlock() {
     waiters.pop_front();
   } else {
     locked = false;
+  }
+  mtx.Unlock();
+  if (fb != nullptr) {
+    FiberEnvironment::GetInstance()->currentFiberCount_ += 1;
+    fb->Resume();
+  }
+}
+
+void shared_mutex::lock() {
+  mtx.Lock();
+  if (state == 0) {
+    // printf("state is 0, lock succeed\n");
+    state = -1;
+    mtx.Unlock();
+    return;
+  }
+  // printf("lock failed..., add to wqueue\n");
+  wwaiters.push_back(this_fiber::co_self());
+  mtx.Unlock();
+  FiberEnvironment::GetInstance()->currentFiberCount_ -= 1;
+  this_fiber::yield();
+}
+
+bool shared_mutex::try_lock() {
+  mtx.Lock();
+  if (state == 0) {
+    state = -1;
+    mtx.Unlock();
+    return true;
+  }
+  mtx.Unlock();
+  return false;
+}
+
+void shared_mutex::unlock() {
+  Fiber* fb = nullptr;
+  mtx.Lock();
+  if (!wwaiters.empty()) {
+    // printf("unlock and call another writer\n");
+    fb = wwaiters.front();
+    wwaiters.pop_front();
+  } else if (!rwaiters.empty()) {
+    // printf("unlock and call another reader\n");
+    fb = rwaiters.front();
+    rwaiters.pop_front();
+    state = 1;
+  } else {
+    // printf("unlock, set state to 0\n");
+    state = 0;
+  }
+  mtx.Unlock();
+  if (fb != nullptr) {
+    FiberEnvironment::GetInstance()->currentFiberCount_ += 1;
+    fb->Resume();
+  }
+}
+
+void shared_mutex::lock_shared() {
+  mtx.Lock();
+  if (state >= 0 && wwaiters.empty()) {
+    // printf("state >= 0, and no wwaiters, lock succeed\n");
+    state++;
+    mtx.Unlock();
+    return;
+  }
+  // if (state < 0)
+  //   printf("lock_shared failed..., state is -1, add to rqueue\n");
+  // else
+  //   printf("lock_shared failed..., has wwaiters, add to rqueue\n");
+
+  rwaiters.push_back(this_fiber::co_self());
+  mtx.Unlock();
+  FiberEnvironment::GetInstance()->currentFiberCount_ -= 1;
+  this_fiber::yield();
+}
+
+bool shared_mutex::try_lock_shared() {
+  mtx.Lock();
+  if (state >= 0 && wwaiters.empty()) {
+    state++;
+    mtx.Unlock();
+    return true;
+  }
+  mtx.Unlock();
+  return false;
+}
+
+void shared_mutex::unlock_shared() {
+  Fiber* fb = nullptr;
+  mtx.Lock();
+  if (state == 1 && !wwaiters.empty()) {
+    // printf("last reader, unlock_shared and call a writer\n");
+    fb = wwaiters.front();
+    wwaiters.pop_front();
+    state = -1;
+  } else {
+    // printf("unlock_shared, state--\n");
+    state--;
   }
   mtx.Unlock();
   if (fb != nullptr) {
@@ -737,18 +832,24 @@ MultiThreadFiberScheduler::MultiThreadFiberScheduler(int threadNum)
         // take tasks from commTasksQueue.
         // this should be low frequency bacause of locking.
         // current stealedTasks and pendingTasks must be empty.
+        // mutex.Lock();
+        // if (!commTasks.empty()) wq[i] = false;
+        // if (commTasks.size() <= TASK_THRESHOLD) {
+        //   // printf("take all tasks from commTasks\n");
+        //   stealedTasks.swap(commTasks);
+        // } else {
+        //   // printf("take some tasks from commTasks\n");
+        //   stealedTasks.resize(TASK_THRESHOLD);
+        //   for (int j = 0; j < TASK_THRESHOLD; j++) {
+        //     stealedTasks[j] = std::move(commTasks[j]);
+        //   }
+        //   commTasks.erase(commTasks.begin(), commTasks.begin() + TASK_THRESHOLD);
+        // }
+        // mutex.Unlock();
         mutex.Lock();
-        if (!commTasks.empty()) wq[i] = false;
-        if (commTasks.size() <= TASK_THRESHOLD) {
-          // printf("take all tasks from commTasks\n");
+        if (turn == i && !commTasks.empty()) {
           stealedTasks.swap(commTasks);
-        } else {
-          // printf("take some tasks from commTasks\n");
-          stealedTasks.resize(TASK_THRESHOLD);
-          for (int j = 0; j < TASK_THRESHOLD; j++) {
-            stealedTasks[j] = std::move(commTasks[j]);
-          }
-          commTasks.erase(commTasks.begin(), commTasks.begin() + TASK_THRESHOLD);
+          turn = (turn + 1) % thread_num;
         }
         mutex.Unlock();
         
@@ -812,25 +913,31 @@ MultiThreadFiberScheduler::MultiThreadFiberScheduler(int threadNum)
         stealedTasks.clear();
 
         // we prefer to execute fiber at current thread.
-        mutex.Lock();
-        if (commTasks.empty()) {
-          // printf("commTasks is empty, poll all pending to it\n");
-          commTasks.swap(pendingTasks);
-        } else if (TASK_THRESHOLD < pendingTasks.size()) {
-          // printf("bad, to many pending tasks, poll some to commTasks\n");
-          for (int j = TASK_THRESHOLD; j < pendingTasks.size(); j++) {
-            commTasks.push_back(std::move(pendingTasks[j]));
-          }
-          pendingTasks.erase(pendingTasks.begin() + TASK_THRESHOLD, pendingTasks.end());
-        }
+        // mutex.Lock();
+        // if (commTasks.empty()) {
+        //   // printf("commTasks is empty, poll all pending to it\n");
+        //   commTasks.swap(pendingTasks);
+        // } else if (TASK_THRESHOLD < pendingTasks.size()) {
+        //   // printf("bad, to many pending tasks, poll some to commTasks\n");
+        //   for (int j = TASK_THRESHOLD; j < pendingTasks.size(); j++) {
+        //     commTasks.push_back(std::move(pendingTasks[j]));
+        //   }
+        //   pendingTasks.erase(pendingTasks.begin() + TASK_THRESHOLD, pendingTasks.end());
+        // }
 
-        mutex.Unlock();
+        // mutex.Unlock();
+        // for (auto&& task : pendingTasks) {
+        //   // printf("deal pending in current thread\n");
+        //   Fiber* fiber = env->GetFiberFromPool();
+        //   fiber->Reset(std::move(task));
+        //   fiber->Resume();
+        // }
+        // pendingTasks.clear();
+        mutex.Lock();
         for (auto&& task : pendingTasks) {
-          // printf("deal pending in current thread\n");
-          Fiber* fiber = env->GetFiberFromPool();
-          fiber->Reset(std::move(task));
-          fiber->Resume();
+          commTasks.push_back(std::move(task));
         }
+        mutex.Unlock();
         pendingTasks.clear();
       }
     });

@@ -57,7 +57,6 @@ class Fiber {
   void DisableHook() { cEnableSysHook_ = 0; }
 
  private:
-  FiberEnvironment*     env_; /*> 协程所在的运行环境，即该协程所属的协程管理器 */
   std::function<void()> pfn_; /*> 协程对应的函数 */
   FiberContext          ctx_; /*> 协程上下文，包括寄存器和栈 */
 
@@ -106,6 +105,30 @@ class mutex {
   std::deque<Fiber*> waiters;
   SpinLock               mtx;
   bool                locked;
+
+};
+
+class shared_mutex {
+
+ public:
+  shared_mutex() : state() {}
+ ~shared_mutex() {}
+  shared_mutex(const shared_mutex&) = delete;
+  shared_mutex& operator=(const shared_mutex&) = delete;
+
+  void lock();
+  bool try_lock();
+  void unlock();
+  void lock_shared();
+  bool try_lock_shared();
+  void unlock_shared();
+
+ private:
+  std::deque<Fiber*> rwaiters;
+  std::deque<Fiber*> wwaiters;
+  SpinLock                mtx;
+  int                   state;
+
 };
 
 class semaphore {
@@ -124,6 +147,48 @@ class semaphore {
   std::deque<Fiber*> waiters;
   SpinLock               mtx;
   size_t               count;
+
+};
+
+template <typename T>
+class channel {
+
+ public:
+  channel(int sz) : full(0), space(sz) {}
+ ~channel() {}
+
+  void write(const T& x) {
+    space.wait();
+    mtx.lock();
+    items.push_back(x);
+    mtx.unlock();
+    full.signal();
+  }
+
+  void write(T&& x) {
+    space.wait();
+    mtx.lock();
+    items.push_back(std::move(x));
+    mtx.unlock();
+    full.signal();
+  }
+
+  T read() {
+    full.wait();
+    mtx.lock();
+    T x = std::move(items.front());
+    items.pop_front();
+    mtx.unlock();
+    space.signal();
+    return x;
+  }
+
+ private:
+  mutex mtx;
+  semaphore full;
+  semaphore space;
+  std::deque<T> items;
+
 };
 
 class FiberScheduler {
@@ -160,7 +225,7 @@ class MultiThreadFiberScheduler {
   std::atomic_bool* wq;
   const int threadNum;
   std::atomic_bool stop;
-  static const int TASK_THRESHOLD = 1;
+  int turn = 0;
 };
 
 struct __go {
@@ -198,6 +263,7 @@ int get_thread_id();
 
 /**
  * @brief yield current coroutine.
+ * @TODO: automatically resume fiber which user yield.
  */
 void yield();
 

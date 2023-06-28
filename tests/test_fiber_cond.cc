@@ -55,11 +55,21 @@ void Consumer() {
 }
 
 int main(int argc, char *argv[]) {
-  for (int i = 0; i < 2; i++) {
-    go Consumer;
-  }
-  for (int i = 0; i < 5; i++) {
-    go std::bind(Producer, i * 1000);
-  }
+
+  go[] {
+    for (int i = 0; i < 64; i++) {
+      go Consumer;
+      pio::this_fiber::sleep_for(10ms);
+      go std::bind(Producer, i * 1000);
+      pio::this_fiber::sleep_for(10ms);
+
+    }
+  };
+
   return 0;
 }
+
+// 3266
+// 3252
+// 3162
+// 3120

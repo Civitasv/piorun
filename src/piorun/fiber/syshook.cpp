@@ -194,7 +194,7 @@ int socket(int domain, int type, int protocol) {
   rpchook_t *lp = FdContextManager::GetInstance().GetContextByFd(fd);
   lp->domain = domain;
 
-  fcntl(fd, F_SETFL, g_sys_fcntl_func(fd, F_GETFL, 0));
+  fcntl(fd, F_SETFL, g_sys_fcntl_func(fd, F_GETFL));
 
   return fd;
 }
@@ -206,7 +206,11 @@ int accept(int fd, struct sockaddr *addr, socklen_t *len) {
   }
   rpchook_t *lp = FdContextManager::GetInstance().GetContextByFd(fd);
   if (!lp || (O_NONBLOCK & lp->user_flag)) {
-    return g_sys_accept_func(fd, addr, len);
+    int cli = g_sys_accept_func(fd, addr, len);
+    if (cli >= 0) {
+      fcntl(cli, F_SETFL, g_sys_fcntl_func(cli, F_GETFL));
+    }
+    return cli;
   }
 
   int timeout = lp->read_timeout.tv_sec == -1 ? -1 :
@@ -216,6 +220,9 @@ int accept(int fd, struct sockaddr *addr, socklen_t *len) {
   pf.events = (POLLIN | POLLERR | POLLHUP);
   int pollret = poll(&pf, 1, timeout);
   int cli = g_sys_accept_func(fd, addr, len);
+  if (cli >= 0) {
+    fcntl(cli, F_SETFL, g_sys_fcntl_func(cli, F_GETFL));
+  }
   return cli;
 }
 
