@@ -1,3 +1,5 @@
+#include <string.h>
+
 #include <iostream>
 #include <span>
 
@@ -64,6 +66,24 @@ task::Terminating EchoServerHandle(Socket s) {
   co_return;
 }
 
+task::Terminating EchoServerHandle2(Socket s) {
+  while (true) {
+    char read_buf[2048];
+    memset(read_buf, '\0', 2048);
+    if (auto status = co_await AsyncRead(s.WithoutTimeout(), read_buf);
+        status.err != 0)
+      throw std::system_error(status.err, std::system_category(),
+                              status.err_message);
+
+    if (auto status =
+            co_await AsyncWrite(s.WithoutTimeout(), read_buf, strlen(read_buf));
+        status.err != 0) {
+      throw std::system_error(status.err, std::system_category(),
+                              status.err_message);
+    }
+  }
+}
+
 task::Terminating EchoClient(SocketView server_socket) {
   if (auto status = co_await MainScheduler().Condition(
           [server_socket]() { return server_socket->operational_; });
@@ -120,11 +140,11 @@ int main() {
   sched.RegisterEmitter(CreateScope<emitter::Epoll>());
 
   Socket s = Socket::ServerSocket(SockAddr(IPv4{}, "127.0.0.1", 9090));
-  auto server = AsyncServer(s.WithoutTimeout(), EchoServerHandle);
-  auto client = EchoClient(s.WithoutTimeout());
+  auto server = AsyncServer(s.WithoutTimeout(), EchoServerHandle2);
+  // auto client = EchoClient(s.WithoutTimeout());
 
   sched.Schedule(server);
-  sched.Schedule(client);
+  // sched.Schedule(client);
 
   sched.Run();
 

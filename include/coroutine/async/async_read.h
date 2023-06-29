@@ -8,8 +8,10 @@
 
 namespace pio {
 
-task::Chainable AsyncRead(SocketView s, std::span<std::byte> &data);
+task::Chainable AsyncRead(SocketView s, std::span<std::byte>& data);
 
-}
+task::Chainable AsyncRead(SocketView s, char* buffer);
+
+}  // namespace pio
 
 #endif  // PIORUN_COROUTINE_ASYNC_READ_H_

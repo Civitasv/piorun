@@ -7,7 +7,7 @@
 
 namespace pio {
 
-task::Chainable AsyncRead(SocketView s, std::span<std::byte> &data) {
+task::Chainable AsyncRead(SocketView s, std::span<std::byte>& data) {
   auto shifting_data = data;
   while (shifting_data.size() > 0) {
     ssize_t cnt = read(s->fd_, shifting_data.data(), shifting_data.size());
@@ -32,4 +32,29 @@ task::Chainable AsyncRead(SocketView s, std::span<std::byte> &data) {
   co_return awaitable::Result{EventType::WAKEUP, 0, ""};
 }
 
+task::Chainable AsyncRead(SocketView s, char* buffer) {
+  if (auto status = co_await MainScheduler().Event(EventCategory::EPOLL, s->fd_,
+                                                   s.deadline());
+      !status) {
+    co_return status;
+  }
+  ssize_t nread;
+  char* buf = buffer;
+  while (true) {
+    nread = read(s->fd_, buf, sizeof(buffer));
+    if (nread == 0) {
+      break;
+    } else if (nread < 0) {
+      if (errno == EAGAIN) {
+        break;
+      } else {
+        co_return awaitable::Result{EventType::ERROR, errno,
+                                    "Failed to read data from socket."};
+      }
+    } else {
+      buf += nread;
+    }
+  }
+  co_return awaitable::Result{EventType::WAKEUP, 0, ""};
+}
 }  // namespace pio
