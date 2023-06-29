@@ -9,4 +9,8 @@ target_link_libraries(piorun PUBLIC yaml-cpp dl)
 add_subdirectory(core)
 add_subdirectory(coroutine)
 add_subdirectory(epoll)
+<<<<<<< HEAD
 add_subdirectory(fiber)
+=======
+add_subdirectory(http)
+>>>>>>> 2f528f5 (http: HttpConn class design)
