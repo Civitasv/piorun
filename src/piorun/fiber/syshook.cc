@@ -20,8 +20,6 @@
 
 #include <map>
 
-#include <shared_mutex>
-
 #include "fiber/fiber.h"
 
 struct rpchook_t {
@@ -86,7 +84,7 @@ class FdContextManager {
 
  private:
   std::deque<rpchook_t*>  fdContexts_;
-  std::shared_mutex          rwMutex_;
+  pio::fiber::shared_mutex   rwMutex_;
 
 };
 

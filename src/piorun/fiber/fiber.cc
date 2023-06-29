@@ -8,9 +8,6 @@
 #include <sys/poll.h>
 #include <sys/epoll.h>
 
-// TODO: move?...
-typedef int (*poll_pfn_t)(struct pollfd fds[], nfds_t nfds, int timeout);
-
 namespace pio::fiber {
 
 extern "C" {
@@ -199,7 +196,7 @@ struct StTimeout {
 
     // 比上一次取超时事件的时间还要长超过了一分钟（60*1000ms)，（溢出了。。。）报错
     // 不过这里又改为了将超时时间设置为最长支持的时间，然后添加。。。
-    // TODO: 增加环计数实现长时间定时器
+    // 增加 isDelayActive 实现长时间定时器
     apItem->isDelayActive = diff >= iItemSize_ ? 1 : 0;
 
     // if (diff >= (uint64_t)this->iItemSize_) {
@@ -393,6 +390,7 @@ friend class FiberScheduler;
   size_t            eventsLength_; /*> epoll_event数组的大小 */
   size_t       currentFiberCount_; /*> 本线程目前正在运行的协程数量(不包含主协程) */
   std::deque<std::function<void()>> raisedTasks_;
+  std::deque<Fiber*>   userYieldFiberQ_;
   std::deque<Fiber*>   fiberPool_;
   
   static const int EPOLL_SIZE_ = 1024 * 10; /*> epoll_wait最大支持的事件数 */
@@ -505,12 +503,12 @@ void Fiber::Reset(const std::function<void()>& pfn) {
   this->pfn_ = pfn;
 }
 
-void Fiber::Reset (std::function<void()>&& pfn) {
+void Fiber::Reset(std::function<void()>&& pfn) {
   if (cIsMain_) return;
   if (cStart_ && !cEnd_) return;
   cStart_ = 0;
   cEnd_   = 0;
-  this->pfn_ = std::move(pfn_);
+  this->pfn_ = std::move(pfn);
 }
 
 void Fiber::SwapContext(Fiber* pendingCo) {
@@ -523,7 +521,7 @@ void condition_variable::wait() {
   // printf("waiting..., waiters size = %lu\n", waiters.size());
   this->mtx.Unlock();
   FiberEnvironment::GetInstance()->currentFiberCount_ -= 1;
-  this_fiber::yield();
+  this_fiber::co_self()->Yield();
 }
 
 void condition_variable::notify_one() {
@@ -564,7 +562,7 @@ void mutex::lock() {
   waiters.push_back(this_fiber::co_self());
   mtx.Unlock();
   FiberEnvironment::GetInstance()->currentFiberCount_ -= 1;
-  this_fiber::yield();
+  this_fiber::co_self()->Yield();
 }
 
 bool mutex::try_lock() {
@@ -606,7 +604,7 @@ void shared_mutex::lock() {
   wwaiters.push_back(this_fiber::co_self());
   mtx.Unlock();
   FiberEnvironment::GetInstance()->currentFiberCount_ -= 1;
-  this_fiber::yield();
+  this_fiber::co_self()->Yield();
 }
 
 bool shared_mutex::try_lock() {
@@ -659,7 +657,7 @@ void shared_mutex::lock_shared() {
   rwaiters.push_back(this_fiber::co_self());
   mtx.Unlock();
   FiberEnvironment::GetInstance()->currentFiberCount_ -= 1;
-  this_fiber::yield();
+  this_fiber::co_self()->Yield();
 }
 
 bool shared_mutex::try_lock_shared() {
@@ -702,7 +700,7 @@ void semaphore::wait() {
   waiters.push_back(this_fiber::co_self());
   mtx.Unlock();
   FiberEnvironment::GetInstance()->currentFiberCount_ -= 1;
-  this_fiber::yield();
+  this_fiber::co_self()->Yield();
 }
 
 bool semaphore::try_wait() {
@@ -755,8 +753,6 @@ void FiberScheduler::Start(std::function<int(void)> pfn) {
     auto  active = env->pActiveList_;
     auto timeout = env->pTimeoutList_;
 
-    // TODO: assert delete?...
-    assert(timeout.head_ == nullptr && timeout.tail_ == nullptr);
     timeout.head_ = timeout.tail_ = nullptr;
 
     // get all the arrivedNode.
@@ -849,7 +845,7 @@ MultiThreadFiberScheduler::MultiThreadFiberScheduler(int threadNum)
         mutex.Lock();
         if (turn == i && !commTasks.empty()) {
           stealedTasks.swap(commTasks);
-          turn = (turn + 1) % thread_num;
+          turn = rand() % thread_num;
         }
         mutex.Unlock();
         
@@ -860,8 +856,6 @@ MultiThreadFiberScheduler::MultiThreadFiberScheduler(int threadNum)
         auto  active = env->pActiveList_;
         auto timeout = env->pTimeoutList_;
 
-        // TODO: assert delete?...
-        // assert(timeout.head_ == nullptr && timeout.tail_ == nullptr);
         timeout.head_ = timeout.tail_ = nullptr;
 
         // get all the arrivedNode.
@@ -906,11 +900,17 @@ MultiThreadFiberScheduler::MultiThreadFiberScheduler(int threadNum)
 
         for (auto&& task : stealedTasks) {
           Fiber* fiber = env->GetFiberFromPool();
-          fiber->Reset(task);
+          fiber->Reset(std::move(task));
           fiber->Resume();
         }
         
         stealedTasks.clear();
+
+        for (auto usrYieldFiber : env->userYieldFiberQ_) {
+          usrYieldFiber->Resume();
+        }
+
+        env->userYieldFiberQ_.clear();
 
         // we prefer to execute fiber at current thread.
         // mutex.Lock();
@@ -934,8 +934,12 @@ MultiThreadFiberScheduler::MultiThreadFiberScheduler(int threadNum)
         // }
         // pendingTasks.clear();
         mutex.Lock();
-        for (auto&& task : pendingTasks) {
-          commTasks.push_back(std::move(task));
+        if (commTasks.empty()) {
+          commTasks.swap(pendingTasks);
+        } else {
+          for (auto&& task : pendingTasks) {
+            commTasks.emplace_back(std::move(task));
+          }
         }
         mutex.Unlock();
         pendingTasks.clear();
@@ -948,7 +952,7 @@ MultiThreadFiberScheduler::~MultiThreadFiberScheduler() {
   // signal(SIGQUIT, quit);
 
 Retry:
-  std::this_thread::yield();
+  std::this_thread::sleep_for(std::chrono::seconds(1));
   for (int i = 0; i < threadNum; i++) {
     if (wq[i] == false)
       goto Retry;
@@ -970,15 +974,6 @@ static inline int get_thread_id() {
 }
 
 void MultiThreadFiberScheduler::Schedule(const std::function<void()>& fn) {
-  
-  // TODO: this will be a balancing dispatcher.
-  // size_t x = 0, min = UINT64_MAX;
-  // for (int i = 0; i < threadNum; i++) {
-  //   if (busyFiberCount[i] < min) {
-  //     min = busyFiberCount[i];
-  //     x = i;
-  //   }
-  // }
 
   if (get_thread_id() != -1) [[likely]] {
     FiberEnvironment::GetInstance()->raisedTasks_.push_back(fn);
@@ -1018,7 +1013,7 @@ void sleep_for(const std::chrono::milliseconds& ms) {
   auto now = fiber::GetTickMS();
   timeout.ullExpireTime = now + ms.count();
   fiber::FiberEnvironment::GetInstance()->pTimeWheel_->AddTimeout(&timeout, now);
-  yield();
+  co_self()->Yield();;
 }
 
 void sleep_until(const std::chrono::high_resolution_clock::time_point& time_point) {
@@ -1034,12 +1029,18 @@ void sleep_until(const std::chrono::high_resolution_clock::time_point& time_poin
   auto now = fiber::GetTickMS();
   timeout.ullExpireTime = duration_cast<milliseconds>(time_point.time_since_epoch()).count();
   if (fiber::FiberEnvironment::GetInstance()->pTimeWheel_->AddTimeout(&timeout, now) == 0) {
-    yield();
+    co_self()->Yield();;
   }
 }
 
 void yield() {
-  co_self()->Yield();
+  auto self = co_self();
+  if (self->IsMain()) {
+    std::this_thread::yield();
+    return;
+  }
+  fiber::FiberEnvironment::GetInstance()->userYieldFiberQ_.push_back(self);
+  self->Yield();
 }
 
 void enable_system_hook() {
@@ -1051,6 +1052,8 @@ void disable_system_hook() {
 }
 
 }
+
+typedef int (*poll_pfn_t)(struct pollfd fds[], nfds_t nfds, int timeout);
 
 int co_poll_inner(pollfd fds[], nfds_t nfds, int timeout, poll_pfn_t pollfunc) {
   if (timeout == 0) {
@@ -1116,7 +1119,7 @@ int co_poll_inner(pollfd fds[], nfds_t nfds, int timeout, poll_pfn_t pollfunc) {
     iRaiseCnt = -1;
 
   } else {
-    pio::this_fiber::yield();
+    pio::this_fiber::co_self()->Yield();
     iRaiseCnt = arg->iRaiseCnt;
   }
 

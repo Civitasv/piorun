@@ -45,7 +45,7 @@ struct Generator {
 
   void yield(const T& x) {
     value = x;
-    this_fiber::yield();
+    this_fiber::co_self()->Yield();
   }
 
   T value;
@@ -62,20 +62,23 @@ void fibonacci(Generator<int>& g) {
   }
 }
 
-void printInfo() {
-  time_t now = time(NULL);
-  tm t;
-  localtime_r(&now, &t);
-  // auto id = std::this_thread::get_id();
-  auto id = this_fiber::get_thread_id();
-  printf(
-    "[%02d:%02d:%02d]: thread: %d fiber: %llu\n", t.tm_hour, t.tm_min, t.tm_sec, id, this_fiber::get_id()
+static void LogInfo(const std::string& msg) {
+  struct tm t;
+  struct timeval now = {0, 0};
+  gettimeofday(&now, nullptr);
+  time_t tsec = now.tv_sec;
+  localtime_r(&tsec, &t);
+  printf (
+    "%d-%02d-%02d %02d:%02d:%02d.%03ld [info] : [%d:%llx]: %s\n", 
+    t.tm_year + 1900, t.tm_mon + 1, t.tm_mday,
+    t.tm_hour, t.tm_min, t.tm_sec, now.tv_usec / 1000,
+    this_fiber::get_thread_id(), this_fiber::get_id(), msg.c_str()
   );
 }
 
 void sleepCo(int x) {
-  this_fiber::sleep_for(seconds{x});
-  printInfo();
+  this_fiber::sleep_for(milliseconds{x});
+  // printInfo();
 }
 
 int stop = 0;
@@ -93,22 +96,35 @@ int main(int argc, const char* agrv[]) {
   }
   printf("\n");
 
-  // 2. test scheduler.
-  for (int i = 0; i < 10; i++) {
-    go std::bind(sleepCo, i + 1);
-  }
-
-  // 3. test recursive.
+  // 2. test recursive.
   go [] {
-    printInfo();
+    LogInfo("first");
     go [] {
-      printInfo();
+      LogInfo("second");
       go [] {
         this_fiber::sleep_for(15s);
-        printInfo();
+        LogInfo("third");
       };
     };
   };
+
+  // 3. test yield
+  go [] {
+    printf("before yield\n");
+    this_fiber::yield();
+    printf("after yield\n");
+  };
+
+  // 4. test scheduler.
+  for (int i = 0; i < 1000; i++) {
+    // simulate 500 requests per milliseconds.
+    for (int j = 0; j < 500; j++) { 
+      go std::bind(sleepCo, i * 20 + 1);
+    }
+    this_fiber::sleep_for(std::chrono::milliseconds(1));
+  }
+
+  printf("finished test...\n");
 
   return 0;
 

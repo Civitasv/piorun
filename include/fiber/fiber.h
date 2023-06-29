@@ -49,7 +49,7 @@ class Fiber {
   void Yield ();
   void Resume();
   void Reset (const std::function<void()>& pfn = nullptr);
-  void Reset (std::function<void()>&& pfn = nullptr);
+  void Reset (std::function<void()>&& pfn);
   bool Done() const { return cEnd_ != 0; }
   bool IsMain() const { return cIsMain_ == 1; }
   bool IsHooked() const { return cEnableSysHook_ == 1; }
@@ -253,17 +253,21 @@ namespace pio::this_fiber {
 unsigned long long get_id();
 
 /**
+ * @brief get ID of current thread in FiberEnv.
+ * 
+ * @return thread ID
+ */
+int get_thread_id();
+
+/**
  * @brief get pointer of current coroutine.
  * 
  * @return pio::fiber::StCoRoutine* 
  */
 pio::fiber::Fiber* co_self();
 
-int get_thread_id();
-
 /**
  * @brief yield current coroutine.
- * @TODO: automatically resume fiber which user yield.
  */
 void yield();
 

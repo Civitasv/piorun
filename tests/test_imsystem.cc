@@ -13,6 +13,20 @@ using namespace pio;
 using namespace fiber;
 using namespace this_fiber;
 
+static void LogInfo(const std::string& msg) {
+  struct tm t;
+  struct timeval now = {0, 0};
+  gettimeofday(&now, nullptr);
+  time_t tsec = now.tv_sec;
+  localtime_r(&tsec, &t);
+  printf (
+    "%d-%02d-%02d %02d:%02d:%02d.%03ld [info] : [%d:%llx]: %s\n", 
+    t.tm_year + 1900, t.tm_mon + 1, t.tm_mday,
+    t.tm_hour, t.tm_min, t.tm_sec, now.tv_usec / 1000,
+    get_thread_id(), get_id(), msg.c_str()
+  );
+}
+
 static int SetNonBlock(int iSock) {
   int iFlags;
 
@@ -48,13 +62,15 @@ static int CreateTcpSocket(const unsigned short shPort, const char *pszIP) {
       close(fd);
       return -1;
     }
+    int nReuseAddr = 1;
+		setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &nReuseAddr, sizeof(nReuseAddr));
 	}
 	return fd;
 }
 
 class Server;
 
-class User {
+class User : public std::enable_shared_from_this<User> {
 
 friend class Server;
 
@@ -69,6 +85,10 @@ friend class Server;
     delete[] ipAddr;
 
     go std::bind(&User::ListenMessage, this);
+  }
+
+ ~User() {
+    close(connfd);
   }
 
   void Online();
@@ -102,7 +122,7 @@ friend class User;
  private:
   std::string IP;
   int Port;
-  std::map<std::string, User*> OnlineMap;
+  std::map<std::string, std::shared_ptr<User>> OnlineMap;
   shared_mutex mapLock;
   channel<std::string> Message;
 
@@ -136,17 +156,17 @@ void Server::start() {
 void Server::listenMessager() {
   for (;;) {
     std::string msg = this->Message.read();
-    this->mapLock.lock();
+    this->mapLock.lock_shared();
     for (auto&& x : OnlineMap) {
       x.second->pipe.write(msg);
     }
-    this->mapLock.unlock();
+    this->mapLock.unlock_shared();
   }
 }
 
 void Server::handler(int clifd, sockaddr_in addr) {
 
-  User* user = new User(clifd, this, addr);
+  std::shared_ptr user = std::make_shared<User>(clifd, this, addr);
   user->Online();
 
   char* buf = new char[4096];
@@ -171,8 +191,6 @@ void Server::handler(int clifd, sockaddr_in addr) {
     }
   }
   delete[] buf;
-  delete user;
-  close(clifd);
 
 }
 
@@ -190,8 +208,9 @@ void User::ListenMessage() {
 
 void User::Online() {
   this->server->mapLock.lock();
-  this->server->OnlineMap[this->Name] = this;
+  this->server->OnlineMap[this->Name] = shared_from_this();
   this->server->mapLock.unlock();
+  LogInfo(this->Addr + " login");
   this->server->BroadCast(this, "已上线\n");
 }
 
@@ -199,48 +218,58 @@ void User::Offline() {
   this->server->mapLock.lock();
   this->server->OnlineMap.erase(this->Name);
   this->server->mapLock.unlock();
+  LogInfo(this->Addr + " logout");
   this->server->BroadCast(this, "下线\n");
 }
 
 void User::DoMessage(const std::string& msg) {
+  
   if (msg == "who\n") {
-    this->server->mapLock.lock();
+    std::string onlineMsg;
+    this->server->mapLock.lock_shared();
     for (auto&& usr : this->server->OnlineMap) {
-      std::string onlineMsg = "[" + usr.second->Addr + "]" + usr.second->Name + ":" + "在线...\n";
-      this->SendMsg(onlineMsg);
+      onlineMsg += "[" + usr.second->Addr + "]" + usr.second->Name + ":" + "在线...\n";
     }
-    this->server->mapLock.unlock();
-  } else if (msg.size() > 7 && strncmp(msg.c_str(), "rename|", 7) == 0) {
+    this->server->mapLock.unlock_shared();
+    this->SendMsg(onlineMsg);
+  } 
+  
+  else if (msg.size() > 7 && strncmp(msg.c_str(), "rename|", 7) == 0) {
     std::string newName = msg.substr(7, msg.size() - 8);
-    this->server->mapLock.lock();
+    this->server->mapLock.lock_shared();
     if (this->server->OnlineMap.find(newName) != this->server->OnlineMap.end()) {
-      this->server->mapLock.unlock();
+      this->server->mapLock.unlock_shared();
       this->SendMsg("当前用户名被使用\n");
-    } else {
+    } 
+    else {
+      this->server->mapLock.unlock_shared();
+      this->server->mapLock.lock();
       this->server->OnlineMap.erase(this->Name);
-      this->server->OnlineMap[newName] = this;
+      this->server->OnlineMap[newName] = shared_from_this();
       this->server->mapLock.unlock();
       this->Name = std::move(newName);
       this->SendMsg("您已经更新用户名:" + this->Name + "\n");
     }
-  } else if (msg.size() > 4 && strncmp(msg.c_str(), "to|", 3) == 0) {
+  } 
+  
+  else if (msg.size() > 4 && strncmp(msg.c_str(), "to|", 3) == 0) {
     std::string remoteName = msg.substr(msg.find_first_of("|") + 1, msg.find_last_of("|") - msg.find_first_of("|") - 1);
-    this->server->mapLock.lock();
+    this->server->mapLock.lock_shared();
     auto remoteUser = this->server->OnlineMap.find(remoteName);
     if (remoteUser == this->server->OnlineMap.end()) {
-      this->server->mapLock.unlock();
+      this->server->mapLock.unlock_shared();
       this->SendMsg("该用户名不存在\n");
       return;
     } else {
+      auto remote = remoteUser->second;
+      this->server->mapLock.unlock_shared();
       std::string content = msg.substr(msg.find_last_of("|") + 1);
       if (content == "") {
-        this->server->mapLock.unlock();
         this->SendMsg("无消息内容，请重发\n");
         return;
       }
-      remoteUser->second->SendMsg(this->Name + "对您说:" + content);
+      remote->SendMsg(this->Name + "对您说:" + content);
     }
-    this->server->mapLock.unlock();
   } else {
     this->server->BroadCast(this, msg);
   }
