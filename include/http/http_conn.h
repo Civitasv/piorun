@@ -6,7 +6,7 @@
 namespace pio {
 class HttpConn {
  public:
-  static const int write_buffer_size = 1024;
+  static const int write_buffer_size = 2048;
   static const int read_buffer_size = 2048;
 
   enum Method {
@@ -41,14 +41,13 @@ class HttpConn {
   enum LineStatus { LINE_OK = 0, LINE_BAD, LINE_OPEN };
 
  public:
-  HttpConn();
-  ~HttpConn();
+  HttpConn() {}
+  ~HttpConn() {}
 
  public:
-  void init(Socket sock);
+  void init();
 
  private:
-  void init();
   HttpCode ProcessRead();
   bool ProcessWrite(HttpCode ret);
   HttpCode ParseRequestLine(char *text);
@@ -64,22 +63,30 @@ class HttpConn {
   bool AddContentLength(int content_length);
   bool AddLinger();
   bool AddBlankLine();
+  HttpCode DoRequest();
+
+ public:
+  void Process();
+
+ public:
+  char read_buf_[read_buffer_size];
+  char write_buf_[write_buffer_size];
 
  private:
-  int sockfd_;
-  char read_buf_[read_buffer_size];
   uint32_t read_idx_;
   uint32_t checked_idx_;
   uint32_t start_line_;
-  char write_buf_[write_buffer_size];
-  char write_idx_;
+  uint32_t write_idx_;
   CheckState check_state_;
   Method method_;
   char *url_;
   char *version_;
   char *host_;
   uint32_t content_length_;
+  char *content_;
   bool linger_;
+  int bytes_to_send;
+  int bytes_have_send;
 };
 }  // namespace pio
 

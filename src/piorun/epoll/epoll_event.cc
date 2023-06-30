@@ -28,4 +28,11 @@ void EpollDeregisterSocket(int fd) {
                             "Failed to de-register socket from epoll.");
 }
 
+void EpollResetSocket(int fd, int ev) {
+  epoll_event event;
+  event.data.fd = fd;
+  event.events = ev | EPOLLET | EPOLLONESHOT | EPOLLRDHUP;
+  epoll_ctl(emitter::Epoll::epoll_fd, EPOLL_CTL_MOD, fd, &event);
+}
+
 }  // namespace pio
