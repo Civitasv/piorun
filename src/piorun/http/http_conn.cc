@@ -176,7 +176,9 @@ HttpConn::HttpCode HttpConn::ProcessRead() {
   return NO_REQUEST;
 }
 
-HttpConn::HttpCode HttpConn::DoRequest() { strcpy(write_buf_, read_buf_); }
+HttpConn::HttpCode HttpConn::DoRequest() {
+  // strcpy(write_buf_, read_buf_);
+}
 
 bool HttpConn::AddResponse(const char *format, ...) {
   if (write_idx_ >= write_buffer_size) return false;
@@ -247,11 +249,11 @@ void HttpConn::Process() {
   if (read_ret == NO_REQUEST) {
     return;
   }
-  // bool write_ret = ProcessWrite(read_ret);
-  // if (!write_ret) {
-  // TODO: close conn
-  // CloseConn()
-  // }
+  bool write_ret = ProcessWrite(read_ret);
+  if (!write_ret) {
+    // TODO: close conn
+    // CloseConn()
+  }
 }
 
 }  // namespace pio
