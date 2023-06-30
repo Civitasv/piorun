@@ -5,6 +5,7 @@ namespace pio {
 
 void EpollRegisterSocket(int fd);
 void EpollDeregisterSocket(int fd);
+void EpollResetSocket(int fd, int ev);
 
 }  // namespace pio
 

@@ -3,6 +3,7 @@
 #include "coroutine/awaitable/event.h"
 #include "coroutine/scheduler.h"
 #include "coroutine/task/chainable.h"
+#include "epoll/epoll_event.h"
 #include "socket.h"
 
 namespace pio {
@@ -32,6 +33,11 @@ task::Chainable AsyncWrite(SocketView s, std::span<const std::byte>& data) {
 // 主要就在于epoll_wait可能感知不到socket可写，所以并不会执行真正的写操作
 // 因此client就会一直被搁置
 task::Chainable AsyncWrite(SocketView s, char* buffer, size_t n) {
+  if (auto status = co_await MainScheduler().Event(EventCategory::EPOLL, s->fd_,
+                                                   s.deadline());
+      !status) {
+    co_return status;
+  }
   size_t nleft = n;
   ssize_t nwritten;
   char* buf = buffer;
@@ -49,6 +55,7 @@ task::Chainable AsyncWrite(SocketView s, char* buffer, size_t n) {
       buf += nwritten;
     }
   }
+  EpollResetSocket(s->fd_, EPOLLIN);
   co_return awaitable::Result{EventType::WAKEUP, 0, ""};
 }
 
