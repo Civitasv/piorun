@@ -1,5 +1,6 @@
 #include "epoll/epoll_event.h"
 
+#include <fcntl.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 
@@ -12,6 +13,9 @@
 namespace pio {
 
 void EpollRegisterSocket(int fd) {
+  int flag = fcntl(fd, F_GETFL);
+  flag |= O_NONBLOCK;
+  fcntl(fd, F_SETFL, flag);
   epoll_event ev = {};
   ev.events = EPOLLIN | EPOLLOUT | EPOLLPRI | EPOLLERR | EPOLLHUP | EPOLLET;
   ev.data.fd = fd;
