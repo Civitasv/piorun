@@ -90,7 +90,7 @@ void EchoServer() {
     }
 
     go [clifd] {
-      printf("new session at: [%d|%llx]\n", this_fiber::get_thread_id(), this_fiber::get_id());
+      printf("new session at: [%d|%p]\n", this_fiber::get_thread_id(), this_fiber::co_self());
       char buf[1024];
       while (true) {
         memset(buf, 0, sizeof(buf));

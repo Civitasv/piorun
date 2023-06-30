@@ -31,63 +31,9 @@ namespace pio::fiber {
  */
 class FiberEnvironment;
 
-class Fiber {
+class MultiThreadFiberScheduler;
 
-  friend class FiberEnvironment;
-  friend class condition_variable;
-  friend int GoRoutine(Fiber* co, void*);
-
- public:
-  Fiber(const std::function<void()>& pfn = nullptr);
-  Fiber(const Fiber& rhs) = default;
-  Fiber(Fiber&& rhs) noexcept = default;
- ~Fiber();
-
-  Fiber& operator=(const Fiber& rhs) = default;
-  Fiber& operator=(Fiber&& rhs) noexcept = default;
-
-  void Yield ();
-  void Resume();
-  void Reset (const std::function<void()>& pfn = nullptr);
-  void Reset (std::function<void()>&& pfn);
-  bool Done() const { return cEnd_ != 0; }
-  bool IsMain() const { return cIsMain_ == 1; }
-  bool IsHooked() const { return cEnableSysHook_ == 1; }
-  void EnableHook() { cEnableSysHook_ = 1; }
-  void DisableHook() { cEnableSysHook_ = 0; }
-
- private:
-  std::function<void()> pfn_; /*> 协程对应的函数 */
-  FiberContext          ctx_; /*> 协程上下文，包括寄存器和栈 */
-
-  char               cStart_; /*> 该协程是否已经开始运行 */
-  char                 cEnd_; /*> 该协程是否已经执行完毕 */
-  char              cIsMain_; /*> 该协程是否是主协程 */
-  char       cEnableSysHook_; /*> 是否打开钩子标识，默认打开 */
-  char          cCreateByEnv;
-
- private:
-  Fiber(bool);
-  void SwapContext(Fiber* pendingCo);
-
-};
-
-class condition_variable {
-
- public:
-  void wait();
-
-  // template<typename _Predicate>
-  // void wait(_Predicate pred);
-
-  void notify_one();
-  void notify_all();
-
- private:
-  std::deque<Fiber*> waiters;
-  SpinLock               mtx;
-
-};
+class Fiber;
 
 class mutex {
 
@@ -131,6 +77,26 @@ class shared_mutex {
 
 };
 
+class condition_variable {
+
+ public:
+  void wait(std::unique_lock<fiber::mutex>& lock);
+
+  template<typename _Predicate>
+  void wait(std::unique_lock<fiber::mutex>& lock, _Predicate pred) {
+	  while (!pred())
+	    wait(lock);
+  }
+
+  void notify_one();
+  void notify_all();
+
+ private:
+  std::deque<Fiber*> waiters;
+  SpinLock               mtx;
+
+};
+
 class semaphore {
 
  public:
@@ -143,7 +109,7 @@ class semaphore {
   bool try_wait();
   void signal();
 
- private:
+ public:
   std::deque<Fiber*> waiters;
   SpinLock               mtx;
   size_t               count;
@@ -191,21 +157,60 @@ class channel {
 
 };
 
-class FiberScheduler {
 
- private:
-  FiberScheduler();
-  FiberScheduler(const FiberScheduler&) = delete;
-  FiberScheduler(FiberScheduler&&) = delete;
- ~FiberScheduler();
+class Fiber {
+
+friend class FiberEnvironment;
+friend class mutex;
+friend class shared_mutex;
+friend class semaphore;
+friend class condition_variable;
+friend int GoRoutine(Fiber* co, void*);
 
  public:
-  static FiberScheduler& GetInstance();
-  void Start(std::function<int(void)> pfn = nullptr);
+  Fiber(const std::function<void()>& pfn = nullptr);
+  Fiber(const Fiber& rhs) = default;
+  Fiber(Fiber&& rhs) noexcept = default;
+ ~Fiber();
+
+  Fiber& operator=(const Fiber& rhs) = default;
+  Fiber& operator=(Fiber&& rhs) noexcept = default;
+
+  void Yield ();
+  void Resume();
+  void Reset (const std::function<void()>& pfn = nullptr);
+  void Reset (std::function<void()>&& pfn);
+  bool Done() const { return cEnd_ != 0; }
+  bool IsMain() const { return cIsMain_ == 1; }
+  bool IsHooked() const { return cEnableSysHook_ == 1; }
+  void EnableHook() { cEnableSysHook_ = 1; }
+  void DisableHook() { cEnableSysHook_ = 0; }
+
+ private:
+  FiberEnvironment*     env_; /*> 协程所在的协程环境 */
+  std::function<void()> pfn_; /*> 协程对应的函数 */
+  FiberContext          ctx_; /*> 协程上下文，包括寄存器和栈 */
+
+  char               cStart_; /*> 该协程是否已经开始运行 */
+  char                 cEnd_; /*> 该协程是否已经执行完毕 */
+  char              cIsMain_; /*> 该协程是否是主协程 */
+  char       cEnableSysHook_; /*> 是否打开钩子标识，默认打开 */
+  char          cCreateByEnv; /*> 该协程是否是有协程池创建的，默认为否 */
+
+ private:
+  Fiber(bool);
+  void SwapContext(Fiber* pendingCo);
 
 };
 
+
 class MultiThreadFiberScheduler {
+
+friend class mutex;
+friend class shared_mutex;
+friend class semaphore;
+friend class condition_variable;
+friend void threadRoutine(int, MultiThreadFiberScheduler*);
 
  private:
   MultiThreadFiberScheduler(int threadNum = 4);
@@ -216,15 +221,15 @@ class MultiThreadFiberScheduler {
  public:
   static MultiThreadFiberScheduler& GetInstance();
   void Schedule(const std::function<void()>& fn);
+  void Schedule(std::function<void()>&& fn);
 
  private:
   
   std::deque<std::function<void()>> commTasks;
   SpinLock mutex;
   std::deque<std::thread> threads;
-  std::atomic_bool* wq;
+  int wannaQuitThreadCount;
   const int threadNum;
-  std::atomic_bool stop;
   int turn = 0;
 };
 
@@ -236,6 +241,10 @@ struct __go {
 
   inline void operator-(const std::function<void()>& fn) {
     MultiThreadFiberScheduler::GetInstance().Schedule(fn);
+  }
+
+  inline void operator-(std::function<void()>&& fn) {
+    MultiThreadFiberScheduler::GetInstance().Schedule(std::move(fn));
   }
 
 };

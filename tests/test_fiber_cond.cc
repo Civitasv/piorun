@@ -20,7 +20,7 @@ void Producer(int x) {
     // 生产一个产品
     stTask_t* task = new stTask_t;
     task->id = id++;
-    printf("%d: %llx produce task %5d\n", get_thread_id(), get_id(), task->id);
+    printf("%d: %p produce task %5d\n", get_thread_id(), co_self(), task->id);
 
     space.wait();
     mtx.lock();
@@ -36,7 +36,7 @@ void Producer(int x) {
 }
 
 void Consumer() {
-  while (true) {
+  for (int i = 0; i < 100; i++) {
     full.wait();
     mtx.lock();
 
@@ -47,7 +47,7 @@ void Consumer() {
     mtx.unlock();
     space.signal();
 
-    printf("%d: %llx consume task %5d\n", get_thread_id(), get_id(), task->id);
+    printf("%d: %p consume task %5d\n", get_thread_id(), co_self(), task->id);
     delete task;
 
     sleep_for(std::chrono::milliseconds(random() % 50 + 1));
@@ -57,11 +57,11 @@ void Consumer() {
 int main(int argc, char *argv[]) {
 
   go[] {
-    for (int i = 0; i < 64; i++) {
+    for (int i = 0; i < 100; i++) {
       go Consumer;
-      pio::this_fiber::sleep_for(10ms);
+      pio::this_fiber::sleep_for(1ms);
       go std::bind(Producer, i * 1000);
-      pio::this_fiber::sleep_for(10ms);
+      pio::this_fiber::sleep_for(1ms);
 
     }
   };

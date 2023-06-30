@@ -69,10 +69,10 @@ static void LogInfo(const std::string& msg) {
   time_t tsec = now.tv_sec;
   localtime_r(&tsec, &t);
   printf (
-    "%d-%02d-%02d %02d:%02d:%02d.%03ld [info] : [%d:%llx]: %s\n", 
+    "%d-%02d-%02d %02d:%02d:%02d.%03ld [info] : [%d:%p]: %s\n", 
     t.tm_year + 1900, t.tm_mon + 1, t.tm_mday,
     t.tm_hour, t.tm_min, t.tm_sec, now.tv_usec / 1000,
-    this_fiber::get_thread_id(), this_fiber::get_id(), msg.c_str()
+    this_fiber::get_thread_id(), this_fiber::co_self(), msg.c_str()
   );
 }
 
@@ -116,13 +116,16 @@ int main(int argc, const char* agrv[]) {
   };
 
   // 4. test scheduler.
-  for (int i = 0; i < 1000; i++) {
-    // simulate 500 requests per milliseconds.
-    for (int j = 0; j < 500; j++) { 
-      go std::bind(sleepCo, i * 20 + 1);
+  // 不要在 go 外面大量高并发提交任务，此时会频繁占用锁，如果需要大量高并发提交任务，新建一个 go 然后在里面提交
+  go [] {
+    for (int i = 0; i < 1000; i++) {
+      // simulate 100 requests per milliseconds.
+      for (int j = 0; j < 100; j++) { 
+        go std::bind(sleepCo, i * 20 + 1);
+      }
+      this_fiber::sleep_for(std::chrono::milliseconds(1));
     }
-    this_fiber::sleep_for(std::chrono::milliseconds(1));
-  }
+  };
 
   printf("finished test...\n");
 

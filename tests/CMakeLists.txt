@@ -16,6 +16,9 @@ target_link_libraries(test_fiber_echoserver piorun)
 add_executable(test_fiber_cond test_fiber_cond.cc)
 target_link_libraries(test_fiber_cond piorun)
 
+add_executable(test_fiber_cv test_fiber_cv.cc)
+target_link_libraries(test_fiber_cv piorun)
+
 add_executable(test_fiber_rw test_fiber_rw.cc)
 target_link_libraries(test_fiber_rw piorun)
 

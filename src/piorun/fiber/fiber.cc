@@ -389,9 +389,11 @@ friend class FiberScheduler;
   epoll_event*       epollEvents_; /*> epoll_event数组 */
   size_t            eventsLength_; /*> epoll_event数组的大小 */
   size_t       currentFiberCount_; /*> 本线程目前正在运行的协程数量(不包含主协程) */
-  std::deque<std::function<void()>> raisedTasks_;
-  std::deque<Fiber*>   userYieldFiberQ_;
-  std::deque<Fiber*>   fiberPool_;
+  std::deque<std::function<void()>> raisedTasks_; /*> 本轮loop新产生的任务组成的队列 */
+  std::deque<Fiber*>   userYieldFiberQ_;          /*> 用户手动yield的协程的队列 */
+  SpinLock             lockForSyncSignalFiberQ_;  /*> 用于线程间互斥地访问被同步类唤醒的协程组成的队列 */
+  std::deque<Fiber*>   syncSignalFiberQ_;         /*> 被同步类唤醒的协程组成的队列 */
+  std::deque<Fiber*>   fiberPool_; /*> 协程池 */
   
   static const int EPOLL_SIZE_ = 1024 * 10; /*> epoll_wait最大支持的事件数 */
  
@@ -408,6 +410,10 @@ friend class FiberScheduler;
   }
 
  ~FiberEnvironment() {
+    if (threadId_ == -1) {
+      threadRoutine(0, &MultiThreadFiberScheduler::GetInstance());
+    }
+    // close(EpollFd_); could recycle by system.
     Fiber* mainCo = pCallStack_[0];
     delete mainCo;
     delete pTimeWheel_;
@@ -453,24 +459,25 @@ friend class FiberScheduler;
 };
 
 int GoRoutine(Fiber* co, void*) {
-  FiberEnvironment::GetInstance()->currentFiberCount_ += 1;
+  co->env_->currentFiberCount_ += 1;
   if (co->pfn_ != nullptr) {
     co->pfn_();
   }
   co->cEnd_ = 1;
-  FiberEnvironment::GetInstance()->currentFiberCount_ -= 1;
   if (co->cCreateByEnv) {
-    FiberEnvironment::GetInstance()->RecycleFiberToPool(co);
+    co->env_->RecycleFiberToPool(co);
   }
+  co->env_->currentFiberCount_ -= 1;
   co->Yield();
   return 0;
 }
 
 Fiber::Fiber(bool)
-: pfn_(nullptr), cStart_(0), cEnd_(0), cIsMain_(1), cEnableSysHook_(0), cCreateByEnv(0) {}
+: env_(nullptr), pfn_(nullptr), cStart_(0), cEnd_(0), cIsMain_(1), cEnableSysHook_(0), cCreateByEnv(0) {}
 
 Fiber::Fiber(const std::function<void()>& pfn)
-: pfn_(pfn), cStart_(0), cEnd_(0), cIsMain_(0), cEnableSysHook_(1), cCreateByEnv() {}
+: env_(FiberEnvironment::GetInstance()), pfn_(pfn), 
+  cStart_(0), cEnd_(0), cIsMain_(0), cEnableSysHook_(1), cCreateByEnv() {}
 
 Fiber::~Fiber() {
   pfn_ = nullptr;
@@ -478,20 +485,18 @@ Fiber::~Fiber() {
 }
 
 void Fiber::Yield() {
-  auto env = FiberEnvironment::GetInstance();
-  Fiber* last = env->pCallStack_[env->callStackSize_ - 2];
-  env->callStackSize_--;
+  Fiber* last = env_->pCallStack_[env_->callStackSize_ - 2];
+  env_->callStackSize_--;
   SwapContext(last);
 }
 
 void Fiber::Resume() {
-  auto env = FiberEnvironment::GetInstance();
-  Fiber* curr = env->pCallStack_[env->callStackSize_ - 1];
+  Fiber* curr = env_->pCallStack_[env_->callStackSize_ - 1];
   if (!this->cStart_) {
     this->cStart_ = 1;
     this->ctx_.Make((void*(*)(void*, void*))GoRoutine, this, nullptr);
   }
-  env->pCallStack_[env->callStackSize_++] = this;
+  env_->pCallStack_[env_->callStackSize_++] = this;
   curr->SwapContext(this);
 }
 
@@ -515,13 +520,13 @@ void Fiber::SwapContext(Fiber* pendingCo) {
   coctx_swap(&(this->ctx_), &(pendingCo->ctx_));
 }
 
-void condition_variable::wait() {
+void condition_variable::wait(std::unique_lock<fiber::mutex>& lock) {
   this->mtx.Lock();
   waiters.push_back(this_fiber::co_self());
-  // printf("waiting..., waiters size = %lu\n", waiters.size());
   this->mtx.Unlock();
-  FiberEnvironment::GetInstance()->currentFiberCount_ -= 1;
+  lock.unlock();
   this_fiber::co_self()->Yield();
+  lock.lock();
 }
 
 void condition_variable::notify_one() {
@@ -534,8 +539,9 @@ void condition_variable::notify_one() {
   }
   mtx.Unlock();
   if (fb != nullptr) {
-    FiberEnvironment::GetInstance()->currentFiberCount_ += 1;
-    fb->Resume();
+    fb->env_->lockForSyncSignalFiberQ_.Lock();
+    fb->env_->syncSignalFiberQ_.push_back(fb);
+    fb->env_->lockForSyncSignalFiberQ_.Unlock();
   }
 }
 
@@ -548,7 +554,9 @@ void condition_variable::notify_all() {
   }
   mtx.Unlock();
   for (auto fiber : dq) {
-    fiber->Resume();
+    fiber->env_->lockForSyncSignalFiberQ_.Lock();
+    fiber->env_->syncSignalFiberQ_.push_back(fiber);
+    fiber->env_->lockForSyncSignalFiberQ_.Unlock();
   }
 }
 
@@ -561,7 +569,6 @@ void mutex::lock() {
   }
   waiters.push_back(this_fiber::co_self());
   mtx.Unlock();
-  FiberEnvironment::GetInstance()->currentFiberCount_ -= 1;
   this_fiber::co_self()->Yield();
 }
 
@@ -587,8 +594,9 @@ void mutex::unlock() {
   }
   mtx.Unlock();
   if (fb != nullptr) {
-    FiberEnvironment::GetInstance()->currentFiberCount_ += 1;
-    fb->Resume();
+    fb->env_->lockForSyncSignalFiberQ_.Lock();
+    fb->env_->syncSignalFiberQ_.push_back(fb);
+    fb->env_->lockForSyncSignalFiberQ_.Unlock();
   }
 }
 
@@ -603,7 +611,6 @@ void shared_mutex::lock() {
   // printf("lock failed..., add to wqueue\n");
   wwaiters.push_back(this_fiber::co_self());
   mtx.Unlock();
-  FiberEnvironment::GetInstance()->currentFiberCount_ -= 1;
   this_fiber::co_self()->Yield();
 }
 
@@ -620,43 +627,50 @@ bool shared_mutex::try_lock() {
 
 void shared_mutex::unlock() {
   Fiber* fb = nullptr;
+  std::deque<Fiber*> pendingReadersQ;
   mtx.Lock();
   if (!wwaiters.empty()) {
     // printf("unlock and call another writer\n");
     fb = wwaiters.front();
     wwaiters.pop_front();
   } else if (!rwaiters.empty()) {
-    // printf("unlock and call another reader\n");
-    fb = rwaiters.front();
-    rwaiters.pop_front();
-    state = 1;
+    // printf("unlock and call all reader\n");
+    state = rwaiters.size();
+    pendingReadersQ.swap(rwaiters);
   } else {
     // printf("unlock, set state to 0\n");
     state = 0;
   }
   mtx.Unlock();
+
   if (fb != nullptr) {
-    FiberEnvironment::GetInstance()->currentFiberCount_ += 1;
-    fb->Resume();
+    fb->env_->lockForSyncSignalFiberQ_.Lock();
+    fb->env_->syncSignalFiberQ_.push_back(fb);
+    fb->env_->lockForSyncSignalFiberQ_.Unlock();
+  } else if (!pendingReadersQ.empty()) {
+    for (auto fiber : pendingReadersQ) {
+      fiber->env_->lockForSyncSignalFiberQ_.Lock();
+      fiber->env_->syncSignalFiberQ_.push_back(fiber);
+      fiber->env_->lockForSyncSignalFiberQ_.Unlock();
+    }
   }
 }
 
 void shared_mutex::lock_shared() {
   mtx.Lock();
   if (state >= 0 && wwaiters.empty()) {
-    // printf("state >= 0, and no wwaiters, lock succeed\n");
+    // printf("state = %d, and no wwaiters, lock succeed\n", state);
     state++;
     mtx.Unlock();
     return;
   }
   // if (state < 0)
-  //   printf("lock_shared failed..., state is -1, add to rqueue\n");
+    // printf("lock_shared failed..., state is -1, add to rqueue\n");
   // else
-  //   printf("lock_shared failed..., has wwaiters, add to rqueue\n");
+    // printf("lock_shared failed..., has wwaiters, add to rqueue\n");
 
   rwaiters.push_back(this_fiber::co_self());
   mtx.Unlock();
-  FiberEnvironment::GetInstance()->currentFiberCount_ -= 1;
   this_fiber::co_self()->Yield();
 }
 
@@ -680,13 +694,14 @@ void shared_mutex::unlock_shared() {
     wwaiters.pop_front();
     state = -1;
   } else {
-    // printf("unlock_shared, state--\n");
     state--;
+    // printf("unlock_shared, state--, reader left: %d\n", state);
   }
   mtx.Unlock();
   if (fb != nullptr) {
-    FiberEnvironment::GetInstance()->currentFiberCount_ += 1;
-    fb->Resume();
+    fb->env_->lockForSyncSignalFiberQ_.Lock();
+    fb->env_->syncSignalFiberQ_.push_back(fb);
+    fb->env_->lockForSyncSignalFiberQ_.Unlock();
   }
 }
 
@@ -699,7 +714,6 @@ void semaphore::wait() {
   }
   waiters.push_back(this_fiber::co_self());
   mtx.Unlock();
-  FiberEnvironment::GetInstance()->currentFiberCount_ -= 1;
   this_fiber::co_self()->Yield();
 }
 
@@ -725,31 +739,123 @@ void semaphore::signal() {
   }
   mtx.Unlock();
   if (fb != nullptr) {
-    FiberEnvironment::GetInstance()->currentFiberCount_ += 1;
-    fb->Resume();
+    fb->env_->lockForSyncSignalFiberQ_.Lock();
+    fb->env_->syncSignalFiberQ_.push_back(fb);
+    fb->env_->lockForSyncSignalFiberQ_.Unlock();
   }
 }
 
-FiberScheduler::FiberScheduler() {
+// void FiberScheduler::Start(std::function<int(void)> pfn) {
+//   auto env = FiberEnvironment::GetInstance();
+//   auto tmWheel = env->pTimeWheel_;
+//   auto events  = env->epollEvents_;
+  
+//   for (;;) {
+//     int eventNum = env->EpollWait(1); // wait for 1 ms
+//     auto  active = env->pActiveList_;
+//     auto timeout = env->pTimeoutList_;
 
-}
+//     timeout.head_ = timeout.tail_ = nullptr;
 
-FiberScheduler::~FiberScheduler() {
+//     // get all the arrivedNode.
+//     for (int i = 0; i < eventNum; i++) {
+//       auto arrivedNode = (StTimeoutItem*)events[i].data.ptr;
+//       if (arrivedNode->pfnPrepare) {
+//         arrivedNode->pfnPrepare(arrivedNode, events[i], &active);
+//       } else {
+//         active.AddTail(arrivedNode);
+//       }
+//     }
 
-}
+//     // get all the timeoutNode.
+//     auto now = GetTickMS();
+//     tmWheel->TakeAllTimeout(now, &timeout);
 
-FiberScheduler& FiberScheduler::GetInstance() {
-  thread_local FiberScheduler scheduler;
-  return scheduler;
-}
+//     auto lp = timeout.head_;
 
-void FiberScheduler::Start(std::function<int(void)> pfn) {
+//     while (lp != nullptr) {
+//       lp->bTimeout = true;
+//       lp = lp->pNext;
+//     }
+
+//     active.Join(&timeout);
+
+//     lp = active.head_;
+
+//     while (lp != nullptr) {
+//       active.PopHead();
+//       if (lp->bTimeout && now < lp->ullExpireTime) {
+//         int ret = tmWheel->AddTimeout(lp, now);
+//         if (ret == 0) {
+//           lp->bTimeout = false;
+//           lp = active.head_;
+//           continue;
+//         }
+//       }
+//       // deal callback.
+//       if (lp->pfnProcess) lp->pfnProcess(lp);
+//       lp = active.head_;
+//     }
+
+//     if (pfn != nullptr) {
+//       if (pfn() == -1) {
+//         break;
+//       }
+//     }
+//   }
+// }
+
+void threadRoutine(int i, MultiThreadFiberScheduler* sc) {
   auto env = FiberEnvironment::GetInstance();
   auto tmWheel = env->pTimeWheel_;
   auto events  = env->epollEvents_;
-  
-  for (;;) {
+  auto&& pendingTasks = env->raisedTasks_;
+  std::deque<std::function<void()>> stealedTasks;
+  std::deque<Fiber*> signaledFibers;
+  env->threadId_ = i;
+  const auto thread_num = sc->threadNum;
+  bool wannaQuit = false;
+
+  if (i == 0) {
+    sc->mutex.Lock();
+    if (sc->commTasks.empty()) {
+      sc->commTasks.swap(pendingTasks);
+    } else {
+      for (auto&& task : pendingTasks) {
+        sc->commTasks.emplace_back(std::move(task));
+      }
+    }
+    sc->mutex.Unlock();
+    pendingTasks.clear();
+  }
+
+  while (true) {
     int eventNum = env->EpollWait(1); // wait for 1 ms
+
+    sc->mutex.Lock();
+    if (sc->turn == i && !sc->commTasks.empty()) {
+      stealedTasks.swap(sc->commTasks);
+      sc->turn = rand() % thread_num;
+      if (wannaQuit == true) {
+        wannaQuit = false;
+        --sc->wannaQuitThreadCount;
+      }
+    }
+
+    // if is false, check could to true or not.
+    if (wannaQuit == false && stealedTasks.empty() && env->currentFiberCount_ == 0) {
+      wannaQuit = true;
+      ++sc->wannaQuitThreadCount;
+    }
+
+    // check break.
+    if (sc->wannaQuitThreadCount == thread_num && stealedTasks.empty() && env->currentFiberCount_ == 0) {
+      sc->mutex.Unlock();
+      printf("%d exit\n", i);
+      break;
+    }
+    sc->mutex.Unlock();
+    
     auto  active = env->pActiveList_;
     auto timeout = env->pTimeoutList_;
 
@@ -795,173 +901,65 @@ void FiberScheduler::Start(std::function<int(void)> pfn) {
       lp = active.head_;
     }
 
-    if (pfn != nullptr) {
-      if (pfn() == -1) {
-        break;
+    for (auto&& task : stealedTasks) {
+      Fiber* fiber = env->GetFiberFromPool();
+      fiber->Reset(std::move(task));
+      fiber->Resume();
+    }
+    
+    stealedTasks.clear();
+
+    for (auto usrYieldFiber : env->userYieldFiberQ_) {
+      usrYieldFiber->Resume();
+    }
+
+    env->userYieldFiberQ_.clear();
+
+    env->lockForSyncSignalFiberQ_.Lock();
+    signaledFibers.swap(env->syncSignalFiberQ_);
+    env->lockForSyncSignalFiberQ_.Unlock();
+
+    for (auto fb : signaledFibers) {
+      fb->Resume();
+    }
+
+    signaledFibers.clear();
+
+    sc->mutex.Lock();
+    if (sc->commTasks.empty()) {
+      sc->commTasks.swap(pendingTasks);
+    } else {
+      for (auto&& task : pendingTasks) {
+        sc->commTasks.emplace_back(std::move(task));
       }
     }
+    sc->mutex.Unlock();
+    pendingTasks.clear();
   }
 }
 
 
 MultiThreadFiberScheduler::MultiThreadFiberScheduler(int threadNum)
-: threadNum(threadNum), stop(false) {
+: threadNum(threadNum) {
   FiberEnvironment::GetInstance()->threadId_ = -1;
-  wq = new std::atomic_bool[threadNum];
-  for (int i = 0; i < threadNum; i++) {
-    wq[i] = false;
-  }
-  for (int i = 0; i < threadNum; i++) {
-
-    this->threads.emplace_back([i, this] {
-      auto env = FiberEnvironment::GetInstance();
-      auto tmWheel = env->pTimeWheel_;
-      auto events  = env->epollEvents_;
-      auto&& pendingTasks = env->raisedTasks_;
-      std::deque<std::function<void()>> stealedTasks;
-      env->threadId_ = i;
-      const auto thread_num = this->threadNum;
-
-      while (true) {
-        int eventNum = env->EpollWait(1); // wait for 1 ms
-
-        // take tasks from commTasksQueue.
-        // this should be low frequency bacause of locking.
-        // current stealedTasks and pendingTasks must be empty.
-        // mutex.Lock();
-        // if (!commTasks.empty()) wq[i] = false;
-        // if (commTasks.size() <= TASK_THRESHOLD) {
-        //   // printf("take all tasks from commTasks\n");
-        //   stealedTasks.swap(commTasks);
-        // } else {
-        //   // printf("take some tasks from commTasks\n");
-        //   stealedTasks.resize(TASK_THRESHOLD);
-        //   for (int j = 0; j < TASK_THRESHOLD; j++) {
-        //     stealedTasks[j] = std::move(commTasks[j]);
-        //   }
-        //   commTasks.erase(commTasks.begin(), commTasks.begin() + TASK_THRESHOLD);
-        // }
-        // mutex.Unlock();
-        mutex.Lock();
-        if (turn == i && !commTasks.empty()) {
-          stealedTasks.swap(commTasks);
-          turn = rand() % thread_num;
-        }
-        mutex.Unlock();
-        
-        // elegant quit.
-        if (stealedTasks.empty() && env->currentFiberCount_ == 0) wq[i] = true;
-        if (stop == true && stealedTasks.empty() && env->currentFiberCount_ == 0) break;
-
-        auto  active = env->pActiveList_;
-        auto timeout = env->pTimeoutList_;
-
-        timeout.head_ = timeout.tail_ = nullptr;
-
-        // get all the arrivedNode.
-        for (int i = 0; i < eventNum; i++) {
-          auto arrivedNode = (StTimeoutItem*)events[i].data.ptr;
-          if (arrivedNode->pfnPrepare) {
-            arrivedNode->pfnPrepare(arrivedNode, events[i], &active);
-          } else {
-            active.AddTail(arrivedNode);
-          }
-        }
-
-        // get all the timeoutNode.
-        auto now = GetTickMS();
-        tmWheel->TakeAllTimeout(now, &timeout);
-
-        auto lp = timeout.head_;
-
-        while (lp != nullptr) {
-          lp->bTimeout = true;
-          lp = lp->pNext;
-        }
-
-        active.Join(&timeout);
-
-        lp = active.head_;
-
-        while (lp != nullptr) {
-          active.PopHead();
-          if (lp->bTimeout && now < lp->ullExpireTime) {
-            int ret = tmWheel->AddTimeout(lp, now);
-            if (ret == 0) {
-              lp->bTimeout = false;
-              lp = active.head_;
-              continue;
-            }
-          }
-          // deal callback.
-          if (lp->pfnProcess) lp->pfnProcess(lp);
-          lp = active.head_;
-        }
-
-        for (auto&& task : stealedTasks) {
-          Fiber* fiber = env->GetFiberFromPool();
-          fiber->Reset(std::move(task));
-          fiber->Resume();
-        }
-        
-        stealedTasks.clear();
-
-        for (auto usrYieldFiber : env->userYieldFiberQ_) {
-          usrYieldFiber->Resume();
-        }
-
-        env->userYieldFiberQ_.clear();
-
-        // we prefer to execute fiber at current thread.
-        // mutex.Lock();
-        // if (commTasks.empty()) {
-        //   // printf("commTasks is empty, poll all pending to it\n");
-        //   commTasks.swap(pendingTasks);
-        // } else if (TASK_THRESHOLD < pendingTasks.size()) {
-        //   // printf("bad, to many pending tasks, poll some to commTasks\n");
-        //   for (int j = TASK_THRESHOLD; j < pendingTasks.size(); j++) {
-        //     commTasks.push_back(std::move(pendingTasks[j]));
-        //   }
-        //   pendingTasks.erase(pendingTasks.begin() + TASK_THRESHOLD, pendingTasks.end());
-        // }
-
-        // mutex.Unlock();
-        // for (auto&& task : pendingTasks) {
-        //   // printf("deal pending in current thread\n");
-        //   Fiber* fiber = env->GetFiberFromPool();
-        //   fiber->Reset(std::move(task));
-        //   fiber->Resume();
-        // }
-        // pendingTasks.clear();
-        mutex.Lock();
-        if (commTasks.empty()) {
-          commTasks.swap(pendingTasks);
-        } else {
-          for (auto&& task : pendingTasks) {
-            commTasks.emplace_back(std::move(task));
-          }
-        }
-        mutex.Unlock();
-        pendingTasks.clear();
-      }
-    });
+  for (int i = 1; i < threadNum; i++) {
+    this->threads.emplace_back(std::bind(threadRoutine, i, this));
   }
 }
 
 MultiThreadFiberScheduler::~MultiThreadFiberScheduler() {
   // signal(SIGQUIT, quit);
 
-Retry:
-  std::this_thread::sleep_for(std::chrono::seconds(1));
-  for (int i = 0; i < threadNum; i++) {
-    if (wq[i] == false)
-      goto Retry;
-  }
-  stop = true;
+// Retry:
+//   std::this_thread::sleep_for(std::chrono::seconds(1));
+//   for (int i = 0; i < threadNum; i++) {
+//     if (wq[i] == false)
+//       goto Retry;
+//   }
+  // stop = true;
   for (auto&& thread : threads) {
     thread.join();
   }
-  delete[] wq;
 }
 
 MultiThreadFiberScheduler& MultiThreadFiberScheduler::GetInstance() {
@@ -969,17 +967,22 @@ MultiThreadFiberScheduler& MultiThreadFiberScheduler::GetInstance() {
   return x;
 }
 
-static inline int get_thread_id() {
-  return FiberEnvironment::GetInstance()->threadId_;
-}
-
 void MultiThreadFiberScheduler::Schedule(const std::function<void()>& fn) {
-
-  if (get_thread_id() != -1) [[likely]] {
+  if (this_fiber::get_thread_id() != -1) {
     FiberEnvironment::GetInstance()->raisedTasks_.push_back(fn);
   } else {
     mutex.Lock();
     commTasks.push_back(fn);
+    mutex.Unlock();
+  }
+}
+
+void MultiThreadFiberScheduler::Schedule(std::function<void()>&& fn) {
+  if (this_fiber::get_thread_id() != -1) [[likely]] {
+    FiberEnvironment::GetInstance()->raisedTasks_.push_back(std::move(fn));
+  } else {
+    mutex.Lock();
+    commTasks.push_back(std::move(fn));
     mutex.Unlock();
   }
 }
@@ -1013,7 +1016,7 @@ void sleep_for(const std::chrono::milliseconds& ms) {
   auto now = fiber::GetTickMS();
   timeout.ullExpireTime = now + ms.count();
   fiber::FiberEnvironment::GetInstance()->pTimeWheel_->AddTimeout(&timeout, now);
-  co_self()->Yield();;
+  co_self()->Yield();
 }
 
 void sleep_until(const std::chrono::high_resolution_clock::time_point& time_point) {
@@ -1029,7 +1032,7 @@ void sleep_until(const std::chrono::high_resolution_clock::time_point& time_poin
   auto now = fiber::GetTickMS();
   timeout.ullExpireTime = duration_cast<milliseconds>(time_point.time_since_epoch()).count();
   if (fiber::FiberEnvironment::GetInstance()->pTimeWheel_->AddTimeout(&timeout, now) == 0) {
-    co_self()->Yield();;
+    co_self()->Yield();
   }
 }
 

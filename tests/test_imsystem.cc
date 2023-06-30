@@ -1,6 +1,7 @@
 #include <iostream>
 #include <map>
 #include <fcntl.h>
+#include <signal.h>
 #include <unistd.h>
 #include <string.h>
 #include <assert.h>
@@ -20,10 +21,10 @@ static void LogInfo(const std::string& msg) {
   time_t tsec = now.tv_sec;
   localtime_r(&tsec, &t);
   printf (
-    "%d-%02d-%02d %02d:%02d:%02d.%03ld [info] : [%d:%llx]: %s\n", 
+    "%d-%02d-%02d %02d:%02d:%02d.%03ld [info] : [%d:%p]: %s\n", 
     t.tm_year + 1900, t.tm_mon + 1, t.tm_mday,
     t.tm_hour, t.tm_min, t.tm_sec, now.tv_usec / 1000,
-    get_thread_id(), get_id(), msg.c_str()
+    get_thread_id(), co_self(), msg.c_str()
   );
 }
 
@@ -76,7 +77,7 @@ friend class Server;
 
  public:
   User(int connfd, Server* server, sockaddr_in addr)
-  : connfd(connfd), server(server), pipe(1) {
+  : connfd(connfd), isClosed(0), server(server), pipe(1) {
     char* ipAddr = new char[32];
     memset(ipAddr, 0, 32);
     sprintf(ipAddr, "%s:%d", inet_ntoa(addr.sin_addr), ntohs(addr.sin_port));
@@ -99,11 +100,12 @@ friend class Server;
 
  private:
   int connfd;
+  int isClosed;
   std::string Addr;
   std::string Name;
   Server* server;
   channel<std::string> pipe;
-
+  semaphore listenMessageFinished;
 };
 
 class Server {
@@ -115,6 +117,7 @@ friend class User;
  ~Server() {}
 
   void start();
+  void stop();
   void listenMessager();
   void BroadCast(User* user, const std::string& msg);
   void handler(int clifd, sockaddr_in addr);
@@ -122,9 +125,11 @@ friend class User;
  private:
   std::string IP;
   int Port;
+  std::atomic<int> isClosed;
   std::map<std::string, std::shared_ptr<User>> OnlineMap;
   shared_mutex mapLock;
   channel<std::string> Message;
+  semaphore listenMessagerFinished;
 
 };
 
@@ -136,7 +141,7 @@ void Server::start() {
 
   go std::bind(&Server::listenMessager, this);
 
-  for (;;) {
+  while (!isClosed) {
     sockaddr_in cliAddr;
     socklen_t cliAddrLen = sizeof(cliAddr);
     int clifd = accept(listenfd, (sockaddr*)(&cliAddr), &cliAddrLen);
@@ -149,19 +154,26 @@ void Server::start() {
     }
     go std::bind(&Server::handler, this, clifd, cliAddr);
   }
-
+  this->Message.write("");
+  listenMessagerFinished.wait();
   close(listenfd);
 }
 
+void Server::stop() {
+  isClosed = 1;
+}
+
 void Server::listenMessager() {
-  for (;;) {
+  while (!isClosed) {
     std::string msg = this->Message.read();
+    if (msg.size() <= 0) continue;
     this->mapLock.lock_shared();
     for (auto&& x : OnlineMap) {
       x.second->pipe.write(msg);
     }
     this->mapLock.unlock_shared();
   }
+  listenMessagerFinished.signal();
 }
 
 void Server::handler(int clifd, sockaddr_in addr) {
@@ -200,10 +212,13 @@ void Server::BroadCast(User* user, const std::string& msg) {
 }
 
 void User::ListenMessage() {
-  for (;;) {
+  while (!isClosed) {
     std::string msg = this->pipe.read();
-    write(this->connfd, msg.c_str(), msg.size());
+    if (msg.size() > 0) {
+      write(this->connfd, msg.c_str(), msg.size());
+    }
   }
+  listenMessageFinished.signal();
 }
 
 void User::Online() {
@@ -220,6 +235,9 @@ void User::Offline() {
   this->server->mapLock.unlock();
   LogInfo(this->Addr + " logout");
   this->server->BroadCast(this, "下线\n");
+  this->isClosed = 1;
+  this->pipe.write(""); // resume Routine: ListenMessage.
+  this->listenMessageFinished.wait();
 }
 
 void User::DoMessage(const std::string& msg) {
@@ -281,7 +299,13 @@ void User::SendMsg(const std::string& msg) {
 
 Server server;
 
+static void sighdr(int x) {
+  server.stop();
+}
+
 int main(int argc, char *argv[]) {
+
+  signal(SIGQUIT, sighdr);
   
   go std::bind(&Server::start, &server);
 
