@@ -1,5 +1,6 @@
 #include <iostream>
 #include <map>
+#include <fstream>
 #include <fcntl.h>
 #include <signal.h>
 #include <unistd.h>
@@ -154,9 +155,9 @@ void Server::start() {
     }
     go std::bind(&Server::handler, this, clifd, cliAddr);
   }
+  close(listenfd);
   this->Message.write("");
   listenMessagerFinished.wait();
-  close(listenfd);
 }
 
 void Server::stop() {
@@ -164,7 +165,13 @@ void Server::stop() {
 }
 
 void Server::listenMessager() {
-  while (!isClosed) {
+  while (true) {
+    this->mapLock.lock_shared();
+    if (isClosed && OnlineMap.empty()) {
+      this->mapLock.unlock_shared();
+      break;
+    }
+    this->mapLock.unlock_shared();
     std::string msg = this->Message.read();
     if (msg.size() <= 0) continue;
     this->mapLock.lock_shared();
@@ -298,14 +305,54 @@ void User::SendMsg(const std::string& msg) {
 }
 
 Server server;
+const char* szPidFile = "imsystem.pid";
 
 static void sighdr(int x) {
   server.stop();
+  unlink(szPidFile);
+}
+
+static void writePidFile() {
+  /* 获取文件描述符 */
+  char str[32];
+  int pidfile = open(szPidFile, O_WRONLY|O_CREAT, 0600);
+  if (pidfile < 0) exit(1);
+  
+  /* 锁定文件，如果失败则说明文件已被锁，存在一个正在运行的进程，程序直接退出 */
+  if (lockf(pidfile, F_TLOCK, 0) < 0) {
+    printf("already running\n");
+    exit(0);
+  }
+
+  /* 锁定文件成功后，会一直持有这把锁，知道进程退出，或者手动 close 文件
+      然后将进程的进程号写入到 pid 文件*/
+  ftruncate(pidfile, 0);
+  sprintf(str, "%d\n", getpid()); // \n is a symbol.
+  ssize_t len = strlen(str);
+  ssize_t ret = write(pidfile, str, len);
+  if (ret != len ) {
+    fprintf(stderr, "Can't Write Pid File: %s", szPidFile);
+    exit(0);
+  }
 }
 
 int main(int argc, char *argv[]) {
 
+  if (argc > 1 && strcmp(argv[1], "-s") == 0) {
+    std::ifstream file(szPidFile);
+    int pid;
+    if (file.is_open()) {
+      file >> pid;
+      file.close();
+      assert(pid > 1);
+      kill(pid, SIGQUIT);
+    }
+    return 0;
+  }
+
+  daemon(1, 1);
   signal(SIGQUIT, sighdr);
+  writePidFile();
   
   go std::bind(&Server::start, &server);
 

@@ -25,6 +25,7 @@ enum {
   kRSP = 12,
 };
 
+// stack size = 128 * 1024
 FiberContext::StackMemory::StackMemory(int size) : stackSize_(size) {
   this->buffer_ = new char[stackSize_];
   this->bp_ = buffer_ + stackSize_;

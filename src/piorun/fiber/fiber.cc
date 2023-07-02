@@ -91,7 +91,7 @@ struct StTimeoutItemLink {
       ap->pPrev = this->tail_;
       // 这里记得更新链表的尾结点
       this->tail_ = ap;
-    } else {  // 链表还是空的。。。
+    } else {  // 链表还是空的(ˉ▽ˉ；)...
       this->head_ = this->tail_ = ap;
       ap->pNext = ap->pPrev = NULL;  // 这里说明实现的是无环的双链表
     }
@@ -816,19 +816,6 @@ void threadRoutine(int i, MultiThreadFiberScheduler* sc) {
   const auto thread_num = sc->threadNum;
   bool wannaQuit = false;
 
-  if (i == 0) {
-    sc->mutex.Lock();
-    if (sc->commTasks.empty()) {
-      sc->commTasks.swap(pendingTasks);
-    } else {
-      for (auto&& task : pendingTasks) {
-        sc->commTasks.emplace_back(std::move(task));
-      }
-    }
-    sc->mutex.Unlock();
-    pendingTasks.clear();
-  }
-
   while (true) {
     int eventNum = env->EpollWait(1); // wait for 1 ms
 
@@ -851,7 +838,7 @@ void threadRoutine(int i, MultiThreadFiberScheduler* sc) {
     // check break.
     if (sc->wannaQuitThreadCount == thread_num && stealedTasks.empty() && env->currentFiberCount_ == 0) {
       sc->mutex.Unlock();
-      printf("%d exit\n", i);
+      // printf("%d exit\n", i);
       break;
     }
     sc->mutex.Unlock();
@@ -948,15 +935,6 @@ MultiThreadFiberScheduler::MultiThreadFiberScheduler(int threadNum)
 }
 
 MultiThreadFiberScheduler::~MultiThreadFiberScheduler() {
-  // signal(SIGQUIT, quit);
-
-// Retry:
-//   std::this_thread::sleep_for(std::chrono::seconds(1));
-//   for (int i = 0; i < threadNum; i++) {
-//     if (wq[i] == false)
-//       goto Retry;
-//   }
-  // stop = true;
   for (auto&& thread : threads) {
     thread.join();
   }

@@ -120,8 +120,17 @@ template <typename T>
 class channel {
 
  public:
-  channel(int sz) : full(0), space(sz) {}
+  channel(int sz = 1) : full(0), space(sz) {}
  ~channel() {}
+
+  friend void operator>>(const T& x, channel& c)
+  { c.write(x); }
+
+  friend void operator>>(T&& x, channel& c)
+  { c.write(std::move(x)); }
+
+  void operator>>(T& x)
+  { x = this->read(); }
 
   void write(const T& x) {
     space.wait();

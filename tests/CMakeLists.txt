@@ -7,25 +7,8 @@ target_link_libraries(test_log piorun)
 add_executable(test_thread test_thread.cc)
 target_link_libraries(test_thread piorun)
 
-add_executable(test_fiber test_fiber.cc)
-target_link_libraries(test_fiber piorun)
-
-add_executable(test_fiber_echoserver test_fiber_echoserver.cc)
-target_link_libraries(test_fiber_echoserver piorun)
-
-add_executable(test_fiber_cond test_fiber_cond.cc)
-target_link_libraries(test_fiber_cond piorun)
-
-add_executable(test_fiber_cv test_fiber_cv.cc)
-target_link_libraries(test_fiber_cv piorun)
-
-add_executable(test_fiber_rw test_fiber_rw.cc)
-target_link_libraries(test_fiber_rw piorun)
-
-add_executable(test_imsystem test_imsystem.cc)
-target_link_libraries(test_imsystem piorun)
-
 add_executable(test_config test_config.cc)
 target_link_libraries(test_config piorun yaml-cpp)
 
+add_subdirectory(stackful_coroutine)
 add_subdirectory(stackless_coroutine)
