@@ -129,8 +129,17 @@ class channel {
   friend void operator>>(T&& x, channel& c)
   { c.write(std::move(x)); }
 
+  friend void operator<<(T&x, channel&c)
+  { x = c.read(); }
+
   void operator>>(T& x)
   { x = this->read(); }
+
+  void operator<<(const T& x) 
+  { this->write(x); }
+
+  void operator<<(T&& x)
+  { this->write(std::move(x)); }
 
   void write(const T& x) {
     space.wait();
