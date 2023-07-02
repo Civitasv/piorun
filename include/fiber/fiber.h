@@ -176,6 +176,15 @@ class channel {
 };
 
 
+using Mutex = mutex;
+using RWmutex = shared_mutex;
+using Semaphore = semaphore;
+using ConditionVariable = condition_variable;
+
+template <class T>
+using Channel = channel<T>;
+
+
 class Fiber {
 
 friend class FiberEnvironment;
@@ -209,11 +218,11 @@ friend int GoRoutine(Fiber* co, void*);
   std::function<void()> pfn_; /*> 协程对应的函数 */
   FiberContext          ctx_; /*> 协程上下文，包括寄存器和栈 */
 
-  char               cStart_; /*> 该协程是否已经开始运行 */
-  char                 cEnd_; /*> 该协程是否已经执行完毕 */
-  char              cIsMain_; /*> 该协程是否是主协程 */
-  char       cEnableSysHook_; /*> 是否打开钩子标识，默认打开 */
-  char          cCreateByEnv; /*> 该协程是否是有协程池创建的，默认为否 */
+  bool               cStart_; /*> 该协程是否已经开始运行 */
+  bool                 cEnd_; /*> 该协程是否已经执行完毕 */
+  bool              cIsMain_; /*> 该协程是否是主协程 */
+  bool       cEnableSysHook_; /*> 是否打开钩子标识，默认打开 */
+  bool          cCreateByEnv; /*> 该协程是否是有协程池创建的，默认为否 */
 
  private:
   Fiber(bool);
