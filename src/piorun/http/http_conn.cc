@@ -176,9 +176,7 @@ HttpConn::HttpCode HttpConn::ProcessRead() {
   return NO_REQUEST;
 }
 
-HttpConn::HttpCode HttpConn::DoRequest() {
-  // strcpy(write_buf_, read_buf_);
-}
+HttpConn::HttpCode HttpConn::DoRequest() { return GET_REQUEST; }
 
 bool HttpConn::AddResponse(const char *format, ...) {
   if (write_idx_ >= write_buffer_size) return false;
@@ -235,6 +233,13 @@ bool HttpConn::ProcessWrite(HttpCode ret) {
       AddHeaders(strlen(error_403_form));
       if (!AddContent(error_403_form)) return false;
       break;
+    }
+    case GET_REQUEST: {
+      AddStatusLine(200, ok_200_title);
+      const char *ok_string =
+          "<html><body><h1>Hello, World!</h1></body></html>";
+      AddHeaders(strlen(ok_string));
+      if (!AddContent(ok_string)) return false;
     }
     default:
       return false;
