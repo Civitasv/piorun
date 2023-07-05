@@ -3,6 +3,7 @@
 #include "coroutine/awaitable/event.h"
 #include "coroutine/scheduler.h"
 #include "coroutine/task/chainable.h"
+#include "epoll/epoll_event.h"
 #include "socket.h"
 
 namespace pio {
@@ -55,6 +56,7 @@ task::Chainable AsyncRead(SocketView s, char* buffer) {
       buf += nread;
     }
   }
+  EpollResetSocket(s->fd_, EPOLLOUT);
   co_return awaitable::Result{EventType::WAKEUP, 0, ""};
 }
 }  // namespace pio

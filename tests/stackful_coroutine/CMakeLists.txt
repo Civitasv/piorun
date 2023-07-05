@@ -15,3 +15,6 @@ target_link_libraries(test_fiber_rw piorun)
 
 add_executable(test_imsystem test_imsystem.cc)
 target_link_libraries(test_imsystem piorun)
+
+add_executable(test_fiber_http_server test_fiber_http_server.cc)
+target_link_libraries(test_fiber_http_server piorun)

@@ -6,3 +6,7 @@ target_link_libraries(test_chainable piorun)
 
 add_executable(test_async_task test_async_task_use_echo_server.cc)
 target_link_libraries(test_async_task piorun)
+
+
+add_executable(test_async_task_http_parse test_async_task_http_parse.cc)
+target_link_libraries(test_async_task_http_parse piorun)
