@@ -4,7 +4,7 @@
 #endif
 coctx_swap:
     # &(curr->ctx) in %rdi, &(pending_co->ctx) in %rsi
-    movq %rsp, 96(%rdi)   # 保存 %rax 到 curr->ctx.regs[12]
+    movq %rsp, 96(%rdi)   # 保存 %rsp 到 curr->ctx.regs[12]
     movq %rbx, 88(%rdi)   # 保存 %rbx 到 curr->ctx.regs[11]
     movq %rcx, 80(%rdi)   # 保存 %rcx 到 curr->ctx.regs[10]
     movq %rdx, 72(%rdi)   # 保存 %rdx 到 curr->ctx.regs[9]
