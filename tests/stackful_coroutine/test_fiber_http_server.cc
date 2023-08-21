@@ -80,6 +80,7 @@ void HttpServer() {
       poll(&pf, 1, 1000);
       continue;
     } else {
+      SetNonBlock(clifd);
       char buf[32];
       memset(buf, 0, 32);
       inet_ntop(AF_INET, &addr.sin_addr, buf, 32);
@@ -98,8 +99,21 @@ void HttpServer() {
           break;
         }
         conn.Process();
-
-        write(clifd, conn.write_buf_, n);
+        size_t left = strlen(conn.write_buf_);
+        char *buffer = conn.write_buf_;
+        while (left > 0) {
+          ssize_t written = write(clifd, buffer, n);
+          if (written < 0) {
+            if (errno == EAGAIN) {
+              break;
+            } else {
+              return;
+            }
+          } else {
+            left -= written;
+            buffer += written;
+          }
+        }
       }
     };
   }
