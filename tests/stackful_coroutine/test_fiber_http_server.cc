@@ -80,7 +80,6 @@ void HttpServer() {
       poll(&pf, 1, 1000);
       continue;
     } else {
-      SetNonBlock(clifd);
       char buf[32];
       memset(buf, 0, 32);
       inet_ntop(AF_INET, &addr.sin_addr, buf, 32);
@@ -90,8 +89,8 @@ void HttpServer() {
     go[clifd] {
       printf("new session at: [%d|%p]\n", this_fiber::get_thread_id(),
              this_fiber::co_self());
+      HttpConn conn = HttpConn();
       while (true) {
-        HttpConn conn = HttpConn();
         HttpConn().init();
         int n = read(clifd, conn.read_buf_, sizeof(conn.read_buf_));
         if (n == 0) {
@@ -99,20 +98,20 @@ void HttpServer() {
           break;
         }
         conn.Process();
-        size_t left = strlen(conn.write_buf_);
-        char *buffer = conn.write_buf_;
-        while (left > 0) {
-          ssize_t written = write(clifd, buffer, n);
-          if (written < 0) {
-            if (errno == EAGAIN) {
-              break;
-            } else {
-              return;
-            }
-          } else {
-            left -= written;
-            buffer += written;
+        size_t nleft = strlen(conn.write_buf_);
+        char *bufp = conn.write_buf_;
+        ssize_t nwritten;
+
+        while (nleft > 0) {
+          if ((nwritten = write(clifd, conn.write_buf_, nleft)) <= 0) {
+            if (errno == EINTR ||
+                errno == EAGAIN) /* Interrupted by sig handler return */
+              nwritten = 0;      /* and call write() again */
+            else
+              return; /* errno set by write() */
           }
+          nleft -= nwritten;
+          bufp += nwritten;
         }
       }
     };
