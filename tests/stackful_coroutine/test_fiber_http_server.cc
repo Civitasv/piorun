@@ -83,17 +83,14 @@ void HttpServer() {
       char buf[32];
       memset(buf, 0, 32);
       inet_ntop(AF_INET, &addr.sin_addr, buf, 32);
-      printf("%s\n", buf);
     }
 
     go[clifd] {
-      printf("new session at: [%d|%p]\n", this_fiber::get_thread_id(),
-             this_fiber::co_self());
       HttpConn conn = HttpConn();
       while (true) {
         HttpConn().init();
         int n = read(clifd, conn.read_buf_, sizeof(conn.read_buf_));
-        if (n == 0) {
+        if (n <= 0) {
           close(clifd);
           break;
         }
