@@ -240,7 +240,7 @@ friend class condition_variable;
 friend void threadRoutine(int, MultiThreadFiberScheduler*);
 
  private:
-  MultiThreadFiberScheduler(int threadNum = 4);
+  MultiThreadFiberScheduler(int threadNum = 7);
   MultiThreadFiberScheduler(const MultiThreadFiberScheduler&) = delete;
   MultiThreadFiberScheduler(MultiThreadFiberScheduler&&) = delete;
  ~MultiThreadFiberScheduler();
@@ -253,7 +253,7 @@ friend void threadRoutine(int, MultiThreadFiberScheduler*);
  private:
   
   std::deque<std::function<void()>> commTasks;
-  SpinLock mutex;
+  std::mutex mutex;
   std::deque<std::thread> threads;
   int wannaQuitThreadCount;
   const int threadNum;

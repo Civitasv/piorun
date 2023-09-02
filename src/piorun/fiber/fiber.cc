@@ -8,6 +8,8 @@
 #include <sys/poll.h>
 #include <sys/epoll.h>
 
+thread_local bool isaccept = false;
+
 namespace pio::fiber {
 
 extern "C" {
@@ -819,10 +821,10 @@ void threadRoutine(int i, MultiThreadFiberScheduler* sc) {
   while (true) {
     int eventNum = env->EpollWait(1); // wait for 1 ms
 
-    sc->mutex.Lock();
-    if (sc->turn == i && !sc->commTasks.empty()) {
+    sc->mutex.lock();
+    if (isaccept == false && !sc->commTasks.empty()) {
       stealedTasks.swap(sc->commTasks);
-      sc->turn = rand() % thread_num;
+      // sc->turn = rand() % thread_num;
       if (wannaQuit == true) {
         wannaQuit = false;
         --sc->wannaQuitThreadCount;
@@ -837,11 +839,11 @@ void threadRoutine(int i, MultiThreadFiberScheduler* sc) {
 
     // check break.
     if (sc->wannaQuitThreadCount == thread_num && stealedTasks.empty() && env->currentFiberCount_ == 0) {
-      sc->mutex.Unlock();
+      sc->mutex.unlock();
       // printf("%d exit\n", i);
       break;
     }
-    sc->mutex.Unlock();
+    sc->mutex.unlock();
     
     auto  active = env->pActiveList_;
     auto timeout = env->pTimeoutList_;
@@ -903,6 +905,9 @@ void threadRoutine(int i, MultiThreadFiberScheduler* sc) {
     env->userYieldFiberQ_.clear();
 
     env->lockForSyncSignalFiberQ_.Lock();
+    if (!env->syncSignalFiberQ_.empty()) {
+      printf("//////////。。。。。\n");
+    }
     signaledFibers.swap(env->syncSignalFiberQ_);
     env->lockForSyncSignalFiberQ_.Unlock();
 
@@ -912,16 +917,16 @@ void threadRoutine(int i, MultiThreadFiberScheduler* sc) {
 
     signaledFibers.clear();
 
-    sc->mutex.Lock();
-    if (sc->commTasks.empty()) {
-      sc->commTasks.swap(pendingTasks);
-    } else {
-      for (auto&& task : pendingTasks) {
-        sc->commTasks.emplace_back(std::move(task));
-      }
-    }
-    sc->mutex.Unlock();
-    pendingTasks.clear();
+    // sc->mutex.Lock();
+    // if (sc->commTasks.empty()) {
+    //   sc->commTasks.swap(pendingTasks);
+    // } else {
+    //   for (auto&& task : pendingTasks) {
+    //     sc->commTasks.emplace_back(std::move(task));
+    //   }
+    // }
+    // sc->mutex.Unlock();
+    // pendingTasks.clear();
   }
 }
 
@@ -947,21 +952,27 @@ MultiThreadFiberScheduler& MultiThreadFiberScheduler::GetInstance() {
 
 void MultiThreadFiberScheduler::Schedule(const std::function<void()>& fn) {
   if (this_fiber::get_thread_id() != -1) {
-    FiberEnvironment::GetInstance()->raisedTasks_.push_back(fn);
-  } else {
-    mutex.Lock();
+    // FiberEnvironment::GetInstance()->raisedTasks_.push_back(fn);
+    mutex.lock();
     commTasks.push_back(fn);
-    mutex.Unlock();
+    mutex.unlock();
+  } else {
+    mutex.lock();
+    commTasks.push_back(fn);
+    mutex.unlock();
   }
 }
 
 void MultiThreadFiberScheduler::Schedule(std::function<void()>&& fn) {
   if (this_fiber::get_thread_id() != -1) [[likely]] {
-    FiberEnvironment::GetInstance()->raisedTasks_.push_back(std::move(fn));
+    // FiberEnvironment::GetInstance()->raisedTasks_.push_back(std::move(fn));
+    mutex.lock();
+    commTasks.push_back(fn);
+    mutex.unlock();
   } else {
-    mutex.Lock();
+    mutex.lock();
     commTasks.push_back(std::move(fn));
-    mutex.Unlock();
+    mutex.unlock();
   }
 }
 

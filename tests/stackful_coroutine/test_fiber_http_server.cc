@@ -10,7 +10,7 @@
 #include <iostream>
 
 #include "fiber/fiber.h"
-#include "http/http_conn.h"
+#include "http/httpconn.h"
 
 using namespace pio;
 using namespace pio::fiber;
@@ -59,7 +59,7 @@ static int CreateTcpSocket(const unsigned short shPort, const char *pszIP) {
 }
 
 void HttpServer() {
-  int listenfd = CreateTcpSocket(1234, "127.0.0.1");
+  int listenfd = CreateTcpSocket(1235, "127.0.0.1");
   SetNonBlock(listenfd);
   listen(listenfd, 1024);
 
@@ -85,41 +85,53 @@ void HttpServer() {
       inet_ntop(AF_INET, &addr.sin_addr, buf, 32);
     }
 
-    go[clifd] {
+    go[clifd, addr] {
       HttpConn conn = HttpConn();
-      while (true) {
-        HttpConn().init();
-        int n = read(clifd, conn.read_buf_, sizeof(conn.read_buf_));
-        if (n <= 0) {
-          close(clifd);
-          break;
-        }
-        conn.Process();
-        size_t nleft = strlen(conn.write_buf_);
-        char *bufp = conn.write_buf_;
-        ssize_t nwritten;
-
-        while (nleft > 0) {
-          if ((nwritten = write(clifd, conn.write_buf_, nleft)) <= 0) {
-            if (errno == EINTR ||
-                errno == EAGAIN) /* Interrupted by sig handler return */
-              nwritten = 0;      /* and call write() again */
-            else
-              return; /* errno set by write() */
+      conn.init(clifd, addr);
+      // timeval timeout;
+      // timeout.tv_sec = 60;
+      // timeout.tv_usec = 0;
+      // setsockopt(clifd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+      do {
+        do {
+          int ret = -1;
+          int readErrno = 0;
+          ret = conn.read(&readErrno);
+          if (ret <= 0 || errno != EAGAIN) {
+            if (ret < 0) {
+              printf("error......\n");
+            }
+            conn.Close();
+            return;
           }
-          nleft -= nwritten;
-          bufp += nwritten;
-        }
-      }
+        } while (!conn.process());
+
+        do {
+          int ret = -1;
+          int writeErrno = 0;
+          ret = conn.write(&writeErrno);
+          if (ret <= 0 || errno != EAGAIN) {
+            conn.Close();
+            return;
+          }
+        } while (conn.ToWriteBytes() != 0);
+
+      } while (conn.IsKeepAlive());
+
+      // conn.Close();
     };
   }
 
   close(listenfd);
 }
 
+#include <iostream>
 int main(int argc, const char *agrv[]) {
   signal(SIGQUIT, sighdr);
-
+  auto srcDir_ = getcwd(nullptr, 256);
+  strncat(srcDir_, "/resources/", 16);
+  HttpConn::userCount = 0;
+  HttpConn::srcDir = srcDir_;
   go HttpServer;
 
   return 0;

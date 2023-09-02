@@ -32,38 +32,36 @@ struct rpchook_t {
 };
 
 class FdContextManager {
-
  private:
-  FdContextManager(size_t sz = 102400)
-  : fdContexts_{sz, nullptr} {}
-  
-  FdContextManager(const FdContextManager&) = delete;
-  
-  FdContextManager(FdContextManager&&) = delete;
- 
- ~FdContextManager() {}
+  FdContextManager(size_t sz = 102400) : fdContexts_{sz, nullptr} {}
+
+  FdContextManager(const FdContextManager &) = delete;
+
+  FdContextManager(FdContextManager &&) = delete;
+
+  ~FdContextManager() {}
 
  public:
-  static FdContextManager& GetInstance() {
+  static FdContextManager &GetInstance() {
     static FdContextManager x;
     return x;
   }
 
-  rpchook_t* GetContextByFd(int fd) {
+  rpchook_t *GetContextByFd(int fd) {
     rwMutex_.lock_shared();
     if (fd < fdContexts_.size() && fdContexts_[fd] != nullptr) {
-      rpchook_t* result = fdContexts_[fd];
+      rpchook_t *result = fdContexts_[fd];
       rwMutex_.unlock_shared();
       return result;
     }
     rwMutex_.unlock_shared();
-    
+
     rwMutex_.lock();
     if (fdContexts_.size() <= fd) [[unlikely]] {
       fdContexts_.resize(static_cast<size_t>(fd) * 3 / 2, nullptr);
     }
 
-    rpchook_t* result = new rpchook_t{0};
+    rpchook_t *result = new rpchook_t{0};
     fdContexts_[fd] = result;
     fdContexts_[fd]->read_timeout.tv_sec = -1;
     fdContexts_[fd]->write_timeout.tv_sec = -1;
@@ -83,9 +81,8 @@ class FdContextManager {
   }
 
  private:
-  std::deque<rpchook_t*>  fdContexts_;
-  pio::fiber::shared_mutex   rwMutex_;
-
+  std::deque<rpchook_t *> fdContexts_;
+  std::shared_mutex rwMutex_;
 };
 
 typedef int (*socket_pfn_t)(int domain, int type, int protocol);
@@ -197,8 +194,13 @@ int socket(int domain, int type, int protocol) {
   return fd;
 }
 
+extern thread_local bool isaccept;
+
 int accept(int fd, struct sockaddr *addr, socklen_t *len) {
-  HOOK_SYS_FUNC(accept);
+  if (!g_sys_accept_func) { 
+    g_sys_accept_func = (accept_pfn_t)dlsym(((void *) -1l), "accept");
+    isaccept = true;
+  }
   if (!pio::this_fiber::co_self()->IsHooked()) {
     return g_sys_accept_func(fd, addr, len);
   }
@@ -211,8 +213,10 @@ int accept(int fd, struct sockaddr *addr, socklen_t *len) {
     return cli;
   }
 
-  int timeout = lp->read_timeout.tv_sec == -1 ? -1 :
-      (lp->read_timeout.tv_sec * 1000) + (lp->read_timeout.tv_usec / 1000);
+  int timeout = lp->read_timeout.tv_sec == -1
+                    ? -1
+                    : (lp->read_timeout.tv_sec * 1000) +
+                          (lp->read_timeout.tv_usec / 1000);
   struct pollfd pf = {0};
   pf.fd = fd;
   pf.events = (POLLIN | POLLERR | POLLHUP);
@@ -298,6 +302,8 @@ int close(int fd) {
   return ret;
 }
 
+// ssize_t readv(int __fd, const iovec *__iovec, int __count) {}
+
 ssize_t read(int fd, void *buf, size_t nbyte) {
   HOOK_SYS_FUNC(read);
 
@@ -310,8 +316,10 @@ ssize_t read(int fd, void *buf, size_t nbyte) {
     ssize_t ret = g_sys_read_func(fd, buf, nbyte);
     return ret;
   }
-  int timeout = lp->read_timeout.tv_sec == -1 ? -1 :
-      (lp->read_timeout.tv_sec * 1000) + (lp->read_timeout.tv_usec / 1000);
+  int timeout = lp->read_timeout.tv_sec == -1
+                    ? -1
+                    : (lp->read_timeout.tv_sec * 1000) +
+                          (lp->read_timeout.tv_usec / 1000);
 
   struct pollfd pf = {0};
   pf.fd = fd;
@@ -338,8 +346,10 @@ ssize_t write(int fd, const void *buf, size_t nbyte) {
     return ret;
   }
   size_t wrotelen = 0;
-  int timeout = lp->write_timeout.tv_sec == -1 ? -1 :
-      (lp->write_timeout.tv_sec * 1000) + (lp->write_timeout.tv_usec / 1000);
+  int timeout = lp->write_timeout.tv_sec == -1
+                    ? -1
+                    : (lp->write_timeout.tv_sec * 1000) +
+                          (lp->write_timeout.tv_usec / 1000);
 
   ssize_t writeret =
       g_sys_write_func(fd, (const char *)buf + wrotelen, nbyte - wrotelen);
@@ -395,15 +405,18 @@ ssize_t sendto(int socket, const void *message, size_t length, int flags,
   ssize_t ret =
       g_sys_sendto_func(socket, message, length, flags, dest_addr, dest_len);
   if (ret < 0 && EAGAIN == errno) {
-    int timeout = lp->write_timeout.tv_sec == -1 ? -1 :
-        (lp->write_timeout.tv_sec * 1000) + (lp->write_timeout.tv_usec / 1000);
+    int timeout = lp->write_timeout.tv_sec == -1
+                      ? -1
+                      : (lp->write_timeout.tv_sec * 1000) +
+                            (lp->write_timeout.tv_usec / 1000);
 
     struct pollfd pf = {0};
     pf.fd = socket;
     pf.events = (POLLOUT | POLLERR | POLLHUP);
     poll(&pf, 1, timeout);
 
-    ret = g_sys_sendto_func(socket, message, length, flags, dest_addr, dest_len);
+    ret =
+        g_sys_sendto_func(socket, message, length, flags, dest_addr, dest_len);
   }
   return ret;
 }
@@ -422,8 +435,10 @@ ssize_t recvfrom(int socket, void *buffer, size_t length, int flags,
                                address_len);
   }
 
-  int timeout = lp->read_timeout.tv_sec == -1 ? -1 :
-      (lp->read_timeout.tv_sec * 1000) + (lp->read_timeout.tv_usec / 1000);
+  int timeout = lp->read_timeout.tv_sec == -1
+                    ? -1
+                    : (lp->read_timeout.tv_sec * 1000) +
+                          (lp->read_timeout.tv_usec / 1000);
 
   struct pollfd pf = {0};
   pf.fd = socket;
@@ -447,8 +462,10 @@ ssize_t send(int socket, const void *buffer, size_t length, int flags) {
     return g_sys_send_func(socket, buffer, length, flags);
   }
   size_t wrotelen = 0;
-  int timeout = lp->write_timeout.tv_sec == -1 ? -1 :
-      (lp->write_timeout.tv_sec * 1000) + (lp->write_timeout.tv_usec / 1000);
+  int timeout = lp->write_timeout.tv_sec == -1
+                    ? -1
+                    : (lp->write_timeout.tv_sec * 1000) +
+                          (lp->write_timeout.tv_usec / 1000);
 
   ssize_t writeret = g_sys_send_func(socket, buffer, length, flags);
   if (writeret == 0) {
@@ -478,7 +495,6 @@ ssize_t send(int socket, const void *buffer, size_t length, int flags) {
   return wrotelen;
 }
 
-
 ssize_t recv(int socket, void *buffer, size_t length, int flags) {
   HOOK_SYS_FUNC(recv);
 
@@ -490,8 +506,10 @@ ssize_t recv(int socket, void *buffer, size_t length, int flags) {
   if (!lp || (O_NONBLOCK & lp->user_flag)) {
     return g_sys_recv_func(socket, buffer, length, flags);
   }
-  int timeout = lp->read_timeout.tv_sec == -1 ? -1 :
-      (lp->read_timeout.tv_sec * 1000) + (lp->read_timeout.tv_usec / 1000);
+  int timeout = lp->read_timeout.tv_sec == -1
+                    ? -1
+                    : (lp->read_timeout.tv_sec * 1000) +
+                          (lp->read_timeout.tv_usec / 1000);
 
   struct pollfd pf = {0};
   pf.fd = socket;
@@ -504,8 +522,8 @@ ssize_t recv(int socket, void *buffer, size_t length, int flags) {
   return readret;
 }
 
-extern int co_poll_inner(struct pollfd fds[], nfds_t nfds,
-                         int timeout, poll_pfn_t pollfunc);
+extern int co_poll_inner(struct pollfd fds[], nfds_t nfds, int timeout,
+                         poll_pfn_t pollfunc);
 
 int poll(struct pollfd fds[], nfds_t nfds, int timeout) {
   HOOK_SYS_FUNC(poll);
@@ -535,8 +553,7 @@ int poll(struct pollfd fds[], nfds_t nfds, int timeout) {
   if (nfds_merge == nfds || nfds == 1) {
     ret = co_poll_inner(fds, nfds, timeout, g_sys_poll_func);
   } else {
-    ret = co_poll_inner(fds_merge, nfds_merge, timeout,
-                        g_sys_poll_func);
+    ret = co_poll_inner(fds_merge, nfds_merge, timeout, g_sys_poll_func);
     if (ret > 0) {
       for (size_t i = 0; i < nfds; i++) {
         it = m.find(fds[i].fd);
@@ -675,7 +692,8 @@ int fcntl(int fildes, int cmd, ...) {
 //       stCoSysEnv_t name = {(char *)n, 0};
 
 //       stCoSysEnv_t *e = (stCoSysEnv_t *)bsearch(&name, arr->data, arr->cnt,
-//                                                 sizeof(name), co_sysenv_comp);
+//                                                 sizeof(name),
+//                                                 co_sysenv_comp);
 
 //       if (e) {
 //         if (overwrite || !e->value) {

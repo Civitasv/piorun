@@ -1,5 +1,10 @@
 target_sources(
     piorun
     PUBLIC
-    http_conn.cc
+    httpconn.cc
+    buffer.cpp
+    httpresponse.cpp
+    httprequest.cpp
+    sqlconnpool.cpp
+    log.cpp
 )
