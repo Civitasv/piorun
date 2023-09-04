@@ -240,7 +240,7 @@ friend class condition_variable;
 friend void threadRoutine(int, MultiThreadFiberScheduler*);
 
  private:
-  MultiThreadFiberScheduler(int threadNum = 7);
+  MultiThreadFiberScheduler(int threadNum = 4);
   MultiThreadFiberScheduler(const MultiThreadFiberScheduler&) = delete;
   MultiThreadFiberScheduler(MultiThreadFiberScheduler&&) = delete;
  ~MultiThreadFiberScheduler();

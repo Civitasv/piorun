@@ -1,6 +1,7 @@
 target_sources(
     piorun
     PUBLIC
+    http_conn.cc
     httpconn.cc
     buffer.cpp
     httpresponse.cpp

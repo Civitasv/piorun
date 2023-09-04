@@ -70,6 +70,8 @@ void Buffer::EnsureWriteable(size_t len) {
   assert(WritableBytes() >= len);
 }
 
+extern ssize_t readv1(int fd, const iovec *iovec, int count);
+
 ssize_t Buffer::ReadFd(int fd, int* saveErrno) {
   char buff[65535];
   struct iovec iov[2];
@@ -80,7 +82,7 @@ ssize_t Buffer::ReadFd(int fd, int* saveErrno) {
   iov[1].iov_base = buff;
   iov[1].iov_len = sizeof(buff);
 
-  const ssize_t len = readv(fd, iov, 2);
+  const ssize_t len = readv1(fd, iov, 2);
   if (len < 0) {
     *saveErrno = errno;
   } else if (static_cast<size_t>(len) <= writable) {

@@ -92,7 +92,9 @@ typedef int (*connect_pfn_t)(int socket, const struct sockaddr *address,
 typedef int (*close_pfn_t)(int fd);
 
 typedef ssize_t (*read_pfn_t)(int fildes, void *buf, size_t nbyte);
+typedef ssize_t (*readv_pfn_t)(int __fd, const iovec *__iovec, int __count);
 typedef ssize_t (*write_pfn_t)(int fildes, const void *buf, size_t nbyte);
+typedef ssize_t (*writev_pfn_t)(int __fd, const iovec *__iovec, int __count);
 
 typedef ssize_t (*sendto_pfn_t)(int socket, const void *message, size_t length,
                                 int flags, const struct sockaddr *dest_addr,
@@ -138,7 +140,9 @@ static connect_pfn_t g_sys_connect_func =
 static close_pfn_t g_sys_close_func = (close_pfn_t)dlsym(RTLD_NEXT, "close");
 
 static read_pfn_t g_sys_read_func = (read_pfn_t)dlsym(RTLD_NEXT, "read");
+static readv_pfn_t g_sys_readv_func = (readv_pfn_t)dlsym(RTLD_NEXT, "readv");
 static write_pfn_t g_sys_write_func = (write_pfn_t)dlsym(RTLD_NEXT, "write");
+static writev_pfn_t g_sys_writev_func = (writev_pfn_t)dlsym(RTLD_NEXT, "writev");
 
 static sendto_pfn_t g_sys_sendto_func =
     (sendto_pfn_t)dlsym(RTLD_NEXT, "sendto");
@@ -303,9 +307,89 @@ int close(int fd) {
 }
 
 // ssize_t readv(int __fd, const iovec *__iovec, int __count) {}
+// ssize_t writev(int __fd, const iovec *__iovec, int __count)
+
+ssize_t readv1(int fd, const iovec *iovec, int count) {
+  HOOK_SYS_FUNC(readv);
+  // printf("hooking readv\n");
+
+  if (!pio::this_fiber::co_self()->IsHooked()) {
+    return g_sys_readv_func(fd, iovec, count);
+  }
+  rpchook_t *lp = FdContextManager::GetInstance().GetContextByFd(fd);
+
+  if (!lp || (O_NONBLOCK & lp->user_flag)) {
+    ssize_t ret = g_sys_readv_func(fd, iovec, count);
+    return ret;
+  }
+  int timeout = lp->read_timeout.tv_sec == -1
+                    ? -1
+                    : (lp->read_timeout.tv_sec * 1000) +
+                          (lp->read_timeout.tv_usec / 1000);
+
+  struct pollfd pf = {0};
+  pf.fd = fd;
+  pf.events = (POLLIN | POLLERR | POLLHUP);
+
+  int pollret = poll(&pf, 1, timeout);
+
+  ssize_t readret = g_sys_readv_func(fd, iovec, count);
+
+  return readret;
+}
+
+ssize_t writev1(int fd, const iovec *iovec, int count) {
+  HOOK_SYS_FUNC(writev);
+  // printf("hooking writev\n");
+
+  if (!pio::this_fiber::co_self()->IsHooked()) {
+    return g_sys_writev_func(fd, iovec, count);
+  }
+  rpchook_t *lp = FdContextManager::GetInstance().GetContextByFd(fd);
+
+  if (!lp || (O_NONBLOCK & lp->user_flag)) {
+    ssize_t ret = g_sys_writev_func(fd, iovec, count);
+    return ret;
+  }
+  size_t wrotelen = 0;
+  int timeout = lp->write_timeout.tv_sec == -1
+                    ? -1
+                    : (lp->write_timeout.tv_sec * 1000) +
+                          (lp->write_timeout.tv_usec / 1000);
+
+  ssize_t writeret =
+      g_sys_writev_func(fd, iovec, count);
+
+  // if (writeret == 0) {
+  //   return writeret;
+  // }
+
+  // if (writeret > 0) {
+  //   wrotelen += writeret;
+  // }
+  // while (wrotelen < nbyte) {
+  //   struct pollfd pf = {0};
+  //   pf.fd = fd;
+  //   pf.events = (POLLOUT | POLLERR | POLLHUP);
+  //   poll(&pf, 1, timeout);
+
+  //   writeret =
+  //       g_sys_write_func(fd, (const char *)buf + wrotelen, nbyte - wrotelen);
+
+  //   if (writeret <= 0) {
+  //     break;
+  //   }
+  //   wrotelen += writeret;
+  // }
+  // if (writeret <= 0 && wrotelen == 0) {
+  //   return writeret;
+  // }
+  return writeret;
+}
 
 ssize_t read(int fd, void *buf, size_t nbyte) {
   HOOK_SYS_FUNC(read);
+  // printf("hooking read\n");
 
   if (!pio::this_fiber::co_self()->IsHooked()) {
     return g_sys_read_func(fd, buf, nbyte);

@@ -1,12 +1,12 @@
+#include <assert.h>
+#include <errno.h>
 #include <fiber/fiber.h>
+#include <string.h>
+#include <sys/epoll.h>
+#include <sys/poll.h>
+#include <sys/time.h>
 
 #include <thread>
-#include <errno.h>
-#include <string.h>
-#include <assert.h>
-#include <sys/time.h>
-#include <sys/poll.h>
-#include <sys/epoll.h>
 
 thread_local bool isaccept = false;
 
@@ -15,7 +15,6 @@ namespace pio::fiber {
 extern "C" {
 
 extern void coctx_swap(FiberContext*, FiberContext*) asm("coctx_swap");
-
 }
 
 /**
@@ -39,48 +38,53 @@ struct StTimeoutItemLink;
 
 // 超时事件结点
 struct StTimeoutItem {
+  using OnPreparePfn_t = void (*)(StTimeoutItem*, epoll_event& ev,
+                                  StTimeoutItemLink*);
+  using OnProcessPfn_t = void (*)(StTimeoutItem*);
 
-  using OnPreparePfn_t = void(*)(StTimeoutItem*, epoll_event& ev, StTimeoutItemLink*);
-  using OnProcessPfn_t = void(*)(StTimeoutItem*);
+  StTimeoutItem* pPrev;     /*> 指向上一个结点 */
+  StTimeoutItem* pNext;     /*> 指向下一个结点 */
+  StTimeoutItemLink* pLink; /*> 指向本结点所属的链表 */
 
-  StTimeoutItem*       pPrev; /*> 指向上一个结点 */
-  StTimeoutItem*       pNext; /*> 指向下一个结点 */
-  StTimeoutItemLink*   pLink; /*> 指向本结点所属的链表 */
+  uint64_t ullExpireTime; /*> 超时时间 */
+  uint64_t isDelayActive; /*> 是否是在之后的轮子才超时 */
 
-  uint64_t     ullExpireTime; /*> 超时时间 */
-  uint64_t     isDelayActive; /*> 是否是在之后的轮子才超时 */
+  OnPreparePfn_t pfnPrepare; /*> 预处理函数，在eventloop中会被调用 */
+  OnProcessPfn_t pfnProcess; /*> 处理函数，在eventloop中会被调用 */
 
-  OnPreparePfn_t  pfnPrepare; /*> 预处理函数，在eventloop中会被调用 */
-  OnProcessPfn_t  pfnProcess; /*> 处理函数，在eventloop中会被调用 */
+  void* pArg; /*> 携带一些信息，例如可以用于指向该超时结点所在的协程 */
+  bool bTimeout; /*> 本结点是否已经超时 */
 
-  void*                 pArg; /*> 携带一些信息，例如可以用于指向该超时结点所在的协程 */
-  bool              bTimeout; /*> 本结点是否已经超时 */
+  StTimeoutItem()
+      : pPrev(),
+        pNext(),
+        pLink(),
+        ullExpireTime(),
+        isDelayActive(),
+        pfnPrepare(),
+        pfnProcess(),
+        pArg(),
+        bTimeout(false) {}
 
-  StTimeoutItem() 
-  : pPrev(), pNext(), pLink(), ullExpireTime(), isDelayActive(),
-    pfnPrepare(), pfnProcess(), pArg(), bTimeout(false) {}
-
- ~StTimeoutItem() {}
+  ~StTimeoutItem() {}
 
   /**
    * @brief 将本结点从所属的链表中移除.
    */
   void RemoveFromLink();
-
 };
 
 struct StTimeoutItemLink {
-
-  StTimeoutItem*       head_; /*> 指向链表头部 */
-  StTimeoutItem*       tail_; /*> 指向链表尾部 */
+  StTimeoutItem* head_; /*> 指向链表头部 */
+  StTimeoutItem* tail_; /*> 指向链表尾部 */
 
   StTimeoutItemLink() : head_(), tail_() {}
 
- ~StTimeoutItemLink() {}
+  ~StTimeoutItemLink() {}
 
   /**
    * @brief 在链表尾部追加超时事件结点
-   * 
+   *
    * @param ap 待追加的超时事件结点
    */
   void AddTail(StTimeoutItem* ap) {
@@ -105,8 +109,7 @@ struct StTimeoutItemLink {
    * @brief 弹出链表头部的超时事件结点
    */
   void inline PopHead() {
-    if (this->head_ == nullptr)
-      return;
+    if (this->head_ == nullptr) return;
     auto lp = this->head_;
     if (this->head_ == this->tail_) {
       this->head_ = this->tail_ = NULL;
@@ -124,10 +127,10 @@ struct StTimeoutItemLink {
 
   /**
    * @brief 将链表 @p apOther splice到本链表中
-   * 
+   *
    * @param apOther 另一个链表
    */
-  void inline Join(StTimeoutItemLink *apOther) {
+  void inline Join(StTimeoutItemLink* apOther) {
     // 如果apOther链表为空，那不需要Join了
     if (!apOther->head_) {
       return;
@@ -155,24 +158,23 @@ struct StTimeoutItemLink {
     // apOther现在被掏空了
     apOther->head_ = apOther->tail_ = nullptr;
   }
-
 };
 
 // 时间轮定时器容器
 struct StTimeout {
-
   StTimeoutItemLink* pItems_; /*> 时间轮，是一个由多个超时事件链表组成的数组 */
-  int             iItemSize_; /*> 时间轮的大小，默认为60*1000 */
+  int iItemSize_; /*> 时间轮的大小，默认为60*1000 */
 
-  uint64_t         ullStart_; /*> 上一次取超时事件的绝对时间 */
-  int64_t        llStartIdx_; /*> 上一次取超时事件的槽号范围的最大值 + 1，即下次取超时事件的开始槽号 */
+  uint64_t ullStart_;  /*> 上一次取超时事件的绝对时间 */
+  int64_t llStartIdx_; /*> 上一次取超时事件的槽号范围的最大值 +
+                          1，即下次取超时事件的开始槽号 */
 
-  StTimeout(int iSize) 
-  : pItems_(), iItemSize_(iSize), ullStart_(GetTickMS()), llStartIdx_() {
+  StTimeout(int iSize)
+      : pItems_(), iItemSize_(iSize), ullStart_(GetTickMS()), llStartIdx_() {
     pItems_ = new StTimeoutItemLink[iSize];
   }
 
- ~StTimeout() {
+  ~StTimeout() {
     delete[] pItems_;
     pItems_ = nullptr;
     iItemSize_ = 0;
@@ -182,12 +184,12 @@ struct StTimeout {
 
   /**
    * @brief 新注册一个超时事件结点
-   * 
+   *
    * @param apItem 新的超时事件结点
    * @param allNow 当前时间(ms)
    * @return int 插入成功时返回0, 插入失败时返回-1
    */
-  int AddTimeout(StTimeoutItem *apItem, uint64_t allNow) {
+  int AddTimeout(StTimeoutItem* apItem, uint64_t allNow) {
     if (this->ullStart_ == 0) {
       this->ullStart_ = allNow;
       this->llStartIdx_ = 0;
@@ -221,7 +223,7 @@ struct StTimeout {
 
   /**
    * @brief 取出所有截至目前为止超时的事件，将它们append到 @p apResult 中.
-   * 
+   *
    * @param allNow 当前时间(ms)
    * @param apResult 存储超时事件的链表
    */
@@ -258,7 +260,6 @@ struct StTimeout {
     this->ullStart_ = allNow;
     this->llStartIdx_ += cnt - 1;
   }
-
 };
 
 void StTimeoutItem::RemoveFromLink() {
@@ -288,27 +289,32 @@ void StTimeoutItem::RemoveFromLink() {
 
   this->pPrev = this->pNext = nullptr;
   this->pLink = nullptr;
-} 
+}
 
 struct StCoPollItem;
 
 struct StCoPoller : public StTimeoutItem {
-
-  pollfd*              fds; /*> pollfd数组，用于注册和获取事件，每个元素与一个Poll结点相对应 */
-  nfds_t              nfds; /*> fds数组的长度 */
+  pollfd*
+      fds; /*> pollfd数组，用于注册和获取事件，每个元素与一个Poll结点相对应 */
+  nfds_t nfds;              /*> fds数组的长度 */
   StCoPollItem* pPollItems; /* 该管理者所管理的Poll结点所组成的数组 */
-  int      iAllEventDetach; /*> 该Poll结构体等待的事件数组中，只有有一个事件到达了，该标识设置为1 */
-  int             iEpollFd; /*> epfd */
-  int            iRaiseCnt; /*> poll的active事件个数 */
+  int iAllEventDetach; /*>
+                          该Poll结构体等待的事件数组中，只有有一个事件到达了，该标识设置为1
+                        */
+  int iEpollFd;        /*> epfd */
+  int iRaiseCnt;       /*> poll的active事件个数 */
 
-  StCoPoller(int epfd, nfds_t numfds) 
-  : fds(), nfds(numfds), pPollItems(), iAllEventDetach(), iEpollFd(epfd), iRaiseCnt() {
+  StCoPoller(int epfd, nfds_t numfds)
+      : fds(),
+        nfds(numfds),
+        pPollItems(),
+        iAllEventDetach(),
+        iEpollFd(epfd),
+        iRaiseCnt() {
     fds = new pollfd[numfds];
   }
 
-  ~StCoPoller() {
-    delete[] fds;
-  }
+  ~StCoPoller() { delete[] fds; }
 
   static uint32_t PollEvent2Epoll(short events) {
     uint32_t e = 0;
@@ -331,41 +337,39 @@ struct StCoPoller : public StTimeoutItem {
     if (events & EPOLLWRNORM) e |= POLLWRNORM;
     return e;
   }
-
 };
 
 struct StCoPollItem : public StTimeoutItem {
-
-  pollfd*       pSelf; /*> 指向该Poll结点对应的pollfd */
-  StCoPoller*   pPoll; /*> 指向管理该Poll结点的Poll结构体 */
+  pollfd* pSelf;       /*> 指向该Poll结点对应的pollfd */
+  StCoPoller* pPoll;   /*> 指向管理该Poll结点的Poll结构体 */
   epoll_event stEvent; /*> 用于存放关心的epoll事件 */
 
   StCoPollItem() : pSelf(), pPoll(), stEvent() {}
-
 };
 
 /**
  * @brief poll process function, 唤醒超时事件结点 @p ap 所在的协程.
- * 
+ *
  * @param ap 超时事件结点
  */
-static void OnPollProcess(StTimeoutItem *ap) {
-  Fiber *co = (Fiber*)ap->pArg;
+static void OnPollProcess(StTimeoutItem* ap) {
+  Fiber* co = (Fiber*)ap->pArg;
   co->Resume();
 }
 
 /**
- * @brief poll prepare function, 
- * 
+ * @brief poll prepare function,
+ *
  * @param ap 超时事件结点
  * @param e  epoll_event
  * @param active 到达事件队列
  */
-static void OnPollPrepare(StTimeoutItem *ap, epoll_event &e, StTimeoutItemLink *active) {
-  StCoPollItem *lp = (StCoPollItem*) ap;
+static void OnPollPrepare(StTimeoutItem* ap, epoll_event& e,
+                          StTimeoutItemLink* active) {
+  StCoPollItem* lp = (StCoPollItem*)ap;
   lp->pSelf->revents = StCoPoller::EpollEvent2Poll(e.events);
 
-  StCoPoller *pPoll = lp->pPoll;
+  StCoPoller* pPoll = lp->pPoll;
   pPoll->iRaiseCnt++;
 
   if (!pPoll->iAllEventDetach) {
@@ -376,42 +380,49 @@ static void OnPollPrepare(StTimeoutItem *ap, epoll_event &e, StTimeoutItemLink *
 }
 
 class FiberEnvironment {
-
-friend class Fiber;
-friend class FiberScheduler;
+  friend class Fiber;
+  friend class FiberScheduler;
 
  public:
-  Fiber*         pCallStack_[128]; /*> 协程调用栈 */
-  int              callStackSize_; /*> 当前调用栈长度 */
-  int                    EpollFd_; /*> epfd */
-  int                   threadId_; /*> 线程ID, 用于识别调度器 */
-  StTimeout*          pTimeWheel_; /*> time wheel */
-  StTimeoutItemLink  pActiveList_; /*> 到达事件缓存 */
+  Fiber* pCallStack_[128];         /*> 协程调用栈 */
+  int callStackSize_;              /*> 当前调用栈长度 */
+  int EpollFd_;                    /*> epfd */
+  int threadId_;                   /*> 线程ID, 用于识别调度器 */
+  StTimeout* pTimeWheel_;          /*> time wheel */
+  StTimeoutItemLink pActiveList_;  /*> 到达事件缓存 */
   StTimeoutItemLink pTimeoutList_; /*> 超时事件缓存 */
-  epoll_event*       epollEvents_; /*> epoll_event数组 */
-  size_t            eventsLength_; /*> epoll_event数组的大小 */
-  size_t       currentFiberCount_; /*> 本线程目前正在运行的协程数量(不包含主协程) */
-  std::deque<std::function<void()>> raisedTasks_; /*> 本轮loop新产生的任务组成的队列 */
-  std::deque<Fiber*>   userYieldFiberQ_;          /*> 用户手动yield的协程的队列 */
-  SpinLock             lockForSyncSignalFiberQ_;  /*> 用于线程间互斥地访问被同步类唤醒的协程组成的队列 */
-  std::deque<Fiber*>   syncSignalFiberQ_;         /*> 被同步类唤醒的协程组成的队列 */
-  std::deque<Fiber*>   fiberPool_; /*> 协程池 */
-  
+  epoll_event* epollEvents_;       /*> epoll_event数组 */
+  size_t eventsLength_;            /*> epoll_event数组的大小 */
+  size_t currentFiberCount_; /*> 本线程目前正在运行的协程数量(不包含主协程) */
+  std::deque<std::function<void()>>
+      raisedTasks_; /*> 本轮loop新产生的任务组成的队列 */
+  std::deque<Fiber*> userYieldFiberQ_; /*> 用户手动yield的协程的队列 */
+  SpinLock
+      lockForSyncSignalFiberQ_; /*>
+                                   用于线程间互斥地访问被同步类唤醒的协程组成的队列
+                                 */
+  std::deque<Fiber*> syncSignalFiberQ_; /*> 被同步类唤醒的协程组成的队列 */
+  std::deque<Fiber*> fiberPool_; /*> 协程池 */
+
   static const int EPOLL_SIZE_ = 1024 * 10; /*> epoll_wait最大支持的事件数 */
- 
+
  private:
-  FiberEnvironment() 
-  : pCallStack_(), callStackSize_(), pActiveList_(), pTimeoutList_(), currentFiberCount_(0) {
-    Fiber *self = new Fiber(true);
+  FiberEnvironment()
+      : pCallStack_(),
+        callStackSize_(),
+        pActiveList_(),
+        pTimeoutList_(),
+        currentFiberCount_(0) {
+    Fiber* self = new Fiber(true);
     // 入栈主协程
     pCallStack_[callStackSize_++] = self;
-    EpollFd_      = epoll_create(1);
-    pTimeWheel_   = new StTimeout(60 * 1000); /* one wheel is 60 seconds */
-    epollEvents_  = new epoll_event[EPOLL_SIZE_];
+    EpollFd_ = epoll_create(1);
+    pTimeWheel_ = new StTimeout(60 * 1000); /* one wheel is 60 seconds */
+    epollEvents_ = new epoll_event[EPOLL_SIZE_];
     eventsLength_ = EPOLL_SIZE_;
   }
 
- ~FiberEnvironment() {
+  ~FiberEnvironment() {
     if (threadId_ == -1) {
       threadRoutine(0, &MultiThreadFiberScheduler::GetInstance());
     }
@@ -448,16 +459,13 @@ friend class FiberScheduler;
         x->cCreateByEnv = 1;
       }
     }
-    
+
     Fiber* x = fiberPool_.front();
     fiberPool_.pop_front();
     return x;
   }
 
-  void RecycleFiberToPool(Fiber* fiber) {
-    fiberPool_.push_back(fiber);
-  }
-
+  void RecycleFiberToPool(Fiber* fiber) { fiberPool_.push_back(fiber); }
 };
 
 int GoRoutine(Fiber* co, void*) {
@@ -475,11 +483,22 @@ int GoRoutine(Fiber* co, void*) {
 }
 
 Fiber::Fiber(bool)
-: env_(nullptr), pfn_(nullptr), cStart_(0), cEnd_(0), cIsMain_(1), cEnableSysHook_(0), cCreateByEnv(0) {}
+    : env_(nullptr),
+      pfn_(nullptr),
+      cStart_(0),
+      cEnd_(0),
+      cIsMain_(1),
+      cEnableSysHook_(0),
+      cCreateByEnv(0) {}
 
 Fiber::Fiber(const std::function<void()>& pfn)
-: env_(FiberEnvironment::GetInstance()), pfn_(pfn), 
-  cStart_(0), cEnd_(0), cIsMain_(0), cEnableSysHook_(1), cCreateByEnv() {}
+    : env_(FiberEnvironment::GetInstance()),
+      pfn_(pfn),
+      cStart_(0),
+      cEnd_(0),
+      cIsMain_(0),
+      cEnableSysHook_(1),
+      cCreateByEnv() {}
 
 Fiber::~Fiber() {
   pfn_ = nullptr;
@@ -496,7 +515,7 @@ void Fiber::Resume() {
   Fiber* curr = env_->pCallStack_[env_->callStackSize_ - 1];
   if (!this->cStart_) {
     this->cStart_ = 1;
-    this->ctx_.Make((void*(*)(void*, void*))GoRoutine, this, nullptr);
+    this->ctx_.Make((void* (*)(void*, void*))GoRoutine, this, nullptr);
   }
   env_->pCallStack_[env_->callStackSize_++] = this;
   curr->SwapContext(this);
@@ -506,7 +525,7 @@ void Fiber::Reset(const std::function<void()>& pfn) {
   if (cIsMain_) return;
   if (cStart_ && !cEnd_) return;
   cStart_ = 0;
-  cEnd_   = 0;
+  cEnd_ = 0;
   this->pfn_ = pfn;
 }
 
@@ -514,7 +533,7 @@ void Fiber::Reset(std::function<void()>&& pfn) {
   if (cIsMain_) return;
   if (cStart_ && !cEnd_) return;
   cStart_ = 0;
-  cEnd_   = 0;
+  cEnd_ = 0;
   this->pfn_ = std::move(pfn);
 }
 
@@ -667,9 +686,9 @@ void shared_mutex::lock_shared() {
     return;
   }
   // if (state < 0)
-    // printf("lock_shared failed..., state is -1, add to rqueue\n");
+  // printf("lock_shared failed..., state is -1, add to rqueue\n");
   // else
-    // printf("lock_shared failed..., has wwaiters, add to rqueue\n");
+  // printf("lock_shared failed..., has wwaiters, add to rqueue\n");
 
   rwaiters.push_back(this_fiber::co_self());
   mtx.Unlock();
@@ -751,7 +770,7 @@ void semaphore::signal() {
 //   auto env = FiberEnvironment::GetInstance();
 //   auto tmWheel = env->pTimeWheel_;
 //   auto events  = env->epollEvents_;
-  
+
 //   for (;;) {
 //     int eventNum = env->EpollWait(1); // wait for 1 ms
 //     auto  active = env->pActiveList_;
@@ -810,7 +829,7 @@ void semaphore::signal() {
 void threadRoutine(int i, MultiThreadFiberScheduler* sc) {
   auto env = FiberEnvironment::GetInstance();
   auto tmWheel = env->pTimeWheel_;
-  auto events  = env->epollEvents_;
+  auto events = env->epollEvents_;
   auto&& pendingTasks = env->raisedTasks_;
   std::deque<std::function<void()>> stealedTasks;
   std::deque<Fiber*> signaledFibers;
@@ -819,33 +838,35 @@ void threadRoutine(int i, MultiThreadFiberScheduler* sc) {
   bool wannaQuit = false;
 
   while (true) {
-    int eventNum = env->EpollWait(1); // wait for 1 ms
+    int eventNum = env->EpollWait(1);  // wait for 1 ms
 
     sc->mutex.lock();
-    if (isaccept == false && !sc->commTasks.empty()) {
+    if (!sc->commTasks.empty()) {
       stealedTasks.swap(sc->commTasks);
       // sc->turn = rand() % thread_num;
-      if (wannaQuit == true) {
-        wannaQuit = false;
-        --sc->wannaQuitThreadCount;
-      }
+      // if (wannaQuit == true) {
+      //   wannaQuit = false;
+      //   --sc->wannaQuitThreadCount;
+      // }
     }
 
     // if is false, check could to true or not.
-    if (wannaQuit == false && stealedTasks.empty() && env->currentFiberCount_ == 0) {
-      wannaQuit = true;
-      ++sc->wannaQuitThreadCount;
-    }
+    // if (wannaQuit == false && stealedTasks.empty() &&
+    //     env->currentFiberCount_ == 0) {
+    //   wannaQuit = true;
+    //   ++sc->wannaQuitThreadCount;
+    // }
 
-    // check break.
-    if (sc->wannaQuitThreadCount == thread_num && stealedTasks.empty() && env->currentFiberCount_ == 0) {
-      sc->mutex.unlock();
-      // printf("%d exit\n", i);
-      break;
-    }
+    // // check break.
+    // if (sc->wannaQuitThreadCount == thread_num && stealedTasks.empty() &&
+    //     env->currentFiberCount_ == 0) {
+    //   sc->mutex.unlock();
+    //   // printf("%d exit\n", i);
+    //   break;
+    // }
     sc->mutex.unlock();
-    
-    auto  active = env->pActiveList_;
+
+    auto active = env->pActiveList_;
     auto timeout = env->pTimeoutList_;
 
     timeout.head_ = timeout.tail_ = nullptr;
@@ -895,7 +916,7 @@ void threadRoutine(int i, MultiThreadFiberScheduler* sc) {
       fiber->Reset(std::move(task));
       fiber->Resume();
     }
-    
+
     stealedTasks.clear();
 
     for (auto usrYieldFiber : env->userYieldFiberQ_) {
@@ -906,7 +927,7 @@ void threadRoutine(int i, MultiThreadFiberScheduler* sc) {
 
     env->lockForSyncSignalFiberQ_.Lock();
     if (!env->syncSignalFiberQ_.empty()) {
-      printf("//////////。。。。。\n");
+      // printf("//////////。。。。。\n");
     }
     signaledFibers.swap(env->syncSignalFiberQ_);
     env->lockForSyncSignalFiberQ_.Unlock();
@@ -930,9 +951,8 @@ void threadRoutine(int i, MultiThreadFiberScheduler* sc) {
   }
 }
 
-
 MultiThreadFiberScheduler::MultiThreadFiberScheduler(int threadNum)
-: threadNum(threadNum) {
+    : threadNum(threadNum) {
   FiberEnvironment::GetInstance()->threadId_ = -1;
   for (int i = 1; i < threadNum; i++) {
     this->threads.emplace_back(std::bind(threadRoutine, i, this));
@@ -976,13 +996,11 @@ void MultiThreadFiberScheduler::Schedule(std::function<void()>&& fn) {
   }
 }
 
-}
+}  // namespace pio::fiber
 
 namespace pio::this_fiber {
 
-unsigned long long get_id() {
-  return (unsigned long long)(co_self());
-}
+unsigned long long get_id() { return (unsigned long long)(co_self()); }
 
 int get_thread_id() {
   return fiber::FiberEnvironment::GetInstance()->threadId_;
@@ -998,17 +1016,19 @@ void sleep_for(const std::chrono::milliseconds& ms) {
     std::this_thread::sleep_for(ms);
     return;
   }
-  
+
   auto timeout = fiber::StTimeoutItem();
   timeout.pfnProcess = fiber::OnPollProcess;
   timeout.pArg = co_self();
   auto now = fiber::GetTickMS();
   timeout.ullExpireTime = now + ms.count();
-  fiber::FiberEnvironment::GetInstance()->pTimeWheel_->AddTimeout(&timeout, now);
+  fiber::FiberEnvironment::GetInstance()->pTimeWheel_->AddTimeout(&timeout,
+                                                                  now);
   co_self()->Yield();
 }
 
-void sleep_until(const std::chrono::high_resolution_clock::time_point& time_point) {
+void sleep_until(
+    const std::chrono::high_resolution_clock::time_point& time_point) {
   using namespace std::chrono;
   if (co_self()->IsMain()) {
     std::this_thread::sleep_until(time_point);
@@ -1019,8 +1039,10 @@ void sleep_until(const std::chrono::high_resolution_clock::time_point& time_poin
   timeout.pfnProcess = fiber::OnPollProcess;
   timeout.pArg = co_self();
   auto now = fiber::GetTickMS();
-  timeout.ullExpireTime = duration_cast<milliseconds>(time_point.time_since_epoch()).count();
-  if (fiber::FiberEnvironment::GetInstance()->pTimeWheel_->AddTimeout(&timeout, now) == 0) {
+  timeout.ullExpireTime =
+      duration_cast<milliseconds>(time_point.time_since_epoch()).count();
+  if (fiber::FiberEnvironment::GetInstance()->pTimeWheel_->AddTimeout(
+          &timeout, now) == 0) {
     co_self()->Yield();
   }
 }
@@ -1035,15 +1057,11 @@ void yield() {
   self->Yield();
 }
 
-void enable_system_hook() {
-  co_self()->EnableHook();
-}
+void enable_system_hook() { co_self()->EnableHook(); }
 
-void disable_system_hook() {
-  co_self()->DisableHook();
-}
+void disable_system_hook() { co_self()->DisableHook(); }
 
-}
+}  // namespace pio::this_fiber
 
 typedef int (*poll_pfn_t)(struct pollfd fds[], nfds_t nfds, int timeout);
 
@@ -1056,7 +1074,7 @@ int co_poll_inner(pollfd fds[], nfds_t nfds, int timeout, poll_pfn_t pollfunc) {
   int epfd = env->EpollFd_;
 
   // 获取当前协程
-  pio::fiber::Fiber *self = pio::this_fiber::co_self();
+  pio::fiber::Fiber* self = pio::this_fiber::co_self();
 
   // 1.struct change
   pio::fiber::StCoPoller* arg = new pio::fiber::StCoPoller(epfd, nfds);
@@ -1081,7 +1099,7 @@ int co_poll_inner(pollfd fds[], nfds_t nfds, int timeout, poll_pfn_t pollfunc) {
     // 设置一个预处理的callback
     // 这个函数会在事件active的时候首先触发
     arg->pPollItems[i].pfnPrepare = pio::fiber::OnPollPrepare;
-    struct epoll_event &ev = arg->pPollItems[i].stEvent;
+    struct epoll_event& ev = arg->pPollItems[i].stEvent;
 
     if (fds[i].fd > -1) {
       ev.data.ptr = arg->pPollItems + i;

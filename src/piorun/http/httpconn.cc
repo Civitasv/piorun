@@ -59,6 +59,7 @@ ssize_t HttpConn::read(int* saveErrno) {
   } while (isET);
   return len;
 }
+extern ssize_t writev1(int fd, const iovec* iovec, int count);
 
 ssize_t HttpConn::write(int* saveErrno) {
   ssize_t len = -1;
