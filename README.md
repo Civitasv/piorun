@@ -6,11 +6,10 @@
 2. Visual Studio Code
 
 ## Pressure test
-piorun:
+piorun vs webserver: CPU: 16, CORE: 32
+piorun: qps 30000+
+webserver: qps 18000+
 ![test_piorun](./assets/test_piorun.png)
-
-webserver:
-![test_webserver](./assets/test_webserver.png)
 
 ## Reference
 
