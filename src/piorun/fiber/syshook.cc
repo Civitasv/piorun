@@ -33,7 +33,11 @@ struct rpchook_t {
 
 class FdContextManager {
  private:
-  FdContextManager(size_t sz = 102400) : fdContexts_{sz, nullptr} {}
+  FdContextManager(size_t sz = 102400) {
+    for (int i = 0; i < sz; i++) {
+      fdContexts_[i].domain = -1;
+    }
+  }
 
   FdContextManager(const FdContextManager &) = delete;
 
@@ -48,41 +52,68 @@ class FdContextManager {
   }
 
   rpchook_t *GetContextByFd(int fd) {
-    rwMutex_.lock_shared();
-    if (fd < fdContexts_.size() && fdContexts_[fd] != nullptr) {
-      rpchook_t *result = fdContexts_[fd];
-      rwMutex_.unlock_shared();
-      return result;
+    if (fd > -1 && fd < (int)sizeof(fdContexts_) / (int)sizeof(fdContexts_[0])) {
+      // if (fdContexts_[fd] == nullptr) {
+      //   rpchook_t* lp = (rpchook_t*)calloc(1, sizeof(rpchook_t));
+      //   lp->read_timeout.tv_sec = -1;
+      //   lp->write_timeout.tv_sec = -1;
+      //   fdContexts_[fd] = lp;
+      //   return lp;
+      // }
+      // return fdContexts_[fd];
+      if (fdContexts_[fd].domain == -1) {
+        memset(fdContexts_ + fd, 0, sizeof(fdContexts_[0]));
+        fdContexts_[fd].read_timeout.tv_sec = -1;
+        fdContexts_[fd].write_timeout.tv_sec = -1;
+      }
+      return fdContexts_ + fd;
     }
-    rwMutex_.unlock_shared();
+    return nullptr;
+    // rwMutex_.lock_shared();
+    // if (fd < fdContexts_.size() && fdContexts_[fd] != nullptr) {
+    //   rpchook_t *result = fdContexts_[fd];
+    //   rwMutex_.unlock_shared();
+    //   return result;
+    // }
+    // rwMutex_.unlock_shared();
 
-    rwMutex_.lock();
-    if (fdContexts_.size() <= fd) [[unlikely]] {
-      fdContexts_.resize(static_cast<size_t>(fd) * 3 / 2, nullptr);
-    }
+    // rwMutex_.lock();
+    // if (fdContexts_.size() <= fd) [[unlikely]] {
+    //   fdContexts_.resize(static_cast<size_t>(fd) * 3 / 2, nullptr);
+    // }
 
-    rpchook_t *result = new rpchook_t{0};
-    fdContexts_[fd] = result;
-    fdContexts_[fd]->read_timeout.tv_sec = -1;
-    fdContexts_[fd]->write_timeout.tv_sec = -1;
-    rwMutex_.unlock();
-    return result;
+    // rpchook_t *result = new rpchook_t{0};
+    // fdContexts_[fd] = result;
+    // fdContexts_[fd]->read_timeout.tv_sec = -1;
+    // fdContexts_[fd]->write_timeout.tv_sec = -1;
+    // rwMutex_.unlock();
+    // return result;
   }
 
   void DelContextByFd(int fd) {
-    rwMutex_.lock();
-    if (fdContexts_.size() <= fd) {
-      rwMutex_.unlock();
-      return;
+    if (fd > -1 && fd < (int)sizeof(fdContexts_) / (int)sizeof(fdContexts_[0])) {
+      // rpchook_t* lp = fdContexts_[fd];
+      // if (lp != nullptr) {
+      //   fdContexts_[fd] = nullptr;
+      //   free(lp);
+      // }
+      fdContexts_[fd].domain = -1;
     }
-    delete fdContexts_[fd];
-    fdContexts_[fd] = nullptr;
-    rwMutex_.unlock();
+
+    // rwMutex_.lock();
+    // if (fdContexts_.size() <= fd) {
+    //   rwMutex_.unlock();
+    //   return;
+    // }
+    // delete fdContexts_[fd];
+    // fdContexts_[fd] = nullptr;
+    // rwMutex_.unlock();
   }
 
  private:
-  std::deque<rpchook_t *> fdContexts_;
-  std::shared_mutex rwMutex_;
+  // std::deque<rpchook_t *> fdContexts_;
+  rpchook_t fdContexts_[102400];
+  // std::shared_mutex rwMutex_;
 };
 
 typedef int (*socket_pfn_t)(int domain, int type, int protocol);

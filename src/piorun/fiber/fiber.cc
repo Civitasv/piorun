@@ -417,7 +417,7 @@ class FiberEnvironment {
     // 入栈主协程
     pCallStack_[callStackSize_++] = self;
     EpollFd_ = epoll_create(1);
-    pTimeWheel_ = new StTimeout(60 * 1000); /* one wheel is 60 seconds */
+    pTimeWheel_ = new StTimeout((2 << 15)); /* one wheel is 60 seconds */
     epollEvents_ = new epoll_event[EPOLL_SIZE_];
     eventsLength_ = EPOLL_SIZE_;
   }
@@ -453,7 +453,7 @@ class FiberEnvironment {
 
   Fiber* GetFiberFromPool() {
     if (fiberPool_.empty()) {
-      fiberPool_.resize(1024);
+      fiberPool_.resize(64);
       for (auto&& x : fiberPool_) {
         x = new Fiber();
         x->cCreateByEnv = 1;
@@ -840,31 +840,31 @@ void threadRoutine(int i, MultiThreadFiberScheduler* sc) {
   while (true) {
     int eventNum = env->EpollWait(1);  // wait for 1 ms
 
-    sc->mutex.lock();
-    if (!sc->commTasks.empty()) {
-      stealedTasks.swap(sc->commTasks);
-      // sc->turn = rand() % thread_num;
-      // if (wannaQuit == true) {
-      //   wannaQuit = false;
-      //   --sc->wannaQuitThreadCount;
-      // }
+    if (sc->mutex.TryLock()) {
+      if (isaccept == false && !sc->commTasks.empty()) {
+        stealedTasks.swap(sc->commTasks);
+        if (wannaQuit == true) {
+          wannaQuit = false;
+          --sc->wannaQuitThreadCount;
+        }
+      }
+
+      // if is false, check could to true or not.
+      if (wannaQuit == false && stealedTasks.empty() &&
+          env->currentFiberCount_ == 0) {
+        wannaQuit = true;
+        ++sc->wannaQuitThreadCount;
+      }
+
+      // check break.
+      if (sc->wannaQuitThreadCount == thread_num && stealedTasks.empty() &&
+          env->currentFiberCount_ == 0) {
+        sc->mutex.Unlock();
+        // printf("%d exit\n", i);
+        break;
+      }
+      sc->mutex.Unlock();
     }
-
-    // if is false, check could to true or not.
-    // if (wannaQuit == false && stealedTasks.empty() &&
-    //     env->currentFiberCount_ == 0) {
-    //   wannaQuit = true;
-    //   ++sc->wannaQuitThreadCount;
-    // }
-
-    // // check break.
-    // if (sc->wannaQuitThreadCount == thread_num && stealedTasks.empty() &&
-    //     env->currentFiberCount_ == 0) {
-    //   sc->mutex.unlock();
-    //   // printf("%d exit\n", i);
-    //   break;
-    // }
-    sc->mutex.unlock();
 
     auto active = env->pActiveList_;
     auto timeout = env->pTimeoutList_;
@@ -913,7 +913,7 @@ void threadRoutine(int i, MultiThreadFiberScheduler* sc) {
 
     for (auto&& task : stealedTasks) {
       Fiber* fiber = env->GetFiberFromPool();
-      fiber->Reset(std::move(task));
+      fiber->Reset(task);
       fiber->Resume();
     }
 
@@ -971,29 +971,15 @@ MultiThreadFiberScheduler& MultiThreadFiberScheduler::GetInstance() {
 }
 
 void MultiThreadFiberScheduler::Schedule(const std::function<void()>& fn) {
-  if (this_fiber::get_thread_id() != -1) {
-    // FiberEnvironment::GetInstance()->raisedTasks_.push_back(fn);
-    mutex.lock();
-    commTasks.push_back(fn);
-    mutex.unlock();
-  } else {
-    mutex.lock();
-    commTasks.push_back(fn);
-    mutex.unlock();
-  }
+  mutex.Lock();
+  commTasks.push_back(fn);
+  mutex.Unlock();
 }
 
 void MultiThreadFiberScheduler::Schedule(std::function<void()>&& fn) {
-  if (this_fiber::get_thread_id() != -1) [[likely]] {
-    // FiberEnvironment::GetInstance()->raisedTasks_.push_back(std::move(fn));
-    mutex.lock();
-    commTasks.push_back(fn);
-    mutex.unlock();
-  } else {
-    mutex.lock();
-    commTasks.push_back(std::move(fn));
-    mutex.unlock();
-  }
+  mutex.Lock();
+  commTasks.push_back(fn);
+  mutex.Unlock();
 }
 
 }  // namespace pio::fiber

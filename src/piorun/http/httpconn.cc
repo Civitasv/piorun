@@ -50,27 +50,30 @@ const char* HttpConn::GetIP() const { return inet_ntoa(addr_.sin_addr); }
 int HttpConn::GetPort() const { return addr_.sin_port; }
 
 ssize_t HttpConn::read(int* saveErrno) {
-  ssize_t len = -1;
-  do {
-    len = readBuff_.ReadFd(fd_, saveErrno);
-    if (len <= 0) {
-      break;
-    }
-  } while (isET);
-  return len;
+  // ssize_t len = -1;
+  // do {
+  //   len = readBuff_.ReadFd(fd_, saveErrno);
+  //   if (len <= 0) {
+  //     break;
+  //   }
+  // } while (isET);
+  // return len;
+  return readBuff_.ReadFd(fd_, saveErrno);
 }
 extern ssize_t writev1(int fd, const iovec* iovec, int count);
 
 ssize_t HttpConn::write(int* saveErrno) {
   ssize_t len = -1;
-  do {
-    len = writev(fd_, iov_, iovCnt_);
+  // do {
+    len = writev1(fd_, iov_, iovCnt_);
     if (len <= 0) {
       *saveErrno = errno;
-      break;
+      // break;
+      return len;
     }
     if (iov_[0].iov_len + iov_[1].iov_len == 0) {
-      break;
+      // break;
+      return len;
     } /* 传输结束 */
     else if (static_cast<size_t>(len) > iov_[0].iov_len) {
       iov_[1].iov_base = (uint8_t*)iov_[1].iov_base + (len - iov_[0].iov_len);
@@ -84,7 +87,7 @@ ssize_t HttpConn::write(int* saveErrno) {
       iov_[0].iov_len -= len;
       writeBuff_.Retrieve(len);
     }
-  } while (isET || ToWriteBytes() > 10240);
+  // } while (isET || ToWriteBytes() > 10240);
   return len;
 }
 
