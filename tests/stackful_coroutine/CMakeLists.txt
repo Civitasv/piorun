@@ -18,3 +18,10 @@ target_link_libraries(test_imsystem piorun)
 
 add_executable(test_fiber_http_server test_fiber_http_server.cc)
 target_link_libraries(test_fiber_http_server piorun)
+
+# 添加自定义命令来复制文件夹
+add_custom_command(TARGET test_fiber_http_server POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/resources
+        $<TARGET_FILE_DIR:test_fiber_http_server>/resources
+)

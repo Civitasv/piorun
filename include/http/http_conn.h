@@ -6,8 +6,8 @@
 namespace pio {
 class HttpConn {
  public:
-  static const int write_buffer_size = 2048;
-  static const int read_buffer_size = 2048;
+  static const int write_buffer_size = 1024;
+  static const int read_buffer_size = 1024;
 
   enum Method {
     GET = 0,

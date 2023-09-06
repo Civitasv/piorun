@@ -32,60 +32,88 @@ struct rpchook_t {
 };
 
 class FdContextManager {
-
  private:
-  FdContextManager(size_t sz = 102400)
-  : fdContexts_{sz, nullptr} {}
-  
-  FdContextManager(const FdContextManager&) = delete;
-  
-  FdContextManager(FdContextManager&&) = delete;
- 
- ~FdContextManager() {}
+  FdContextManager(size_t sz = 102400) {
+    for (int i = 0; i < sz; i++) {
+      fdContexts_[i].domain = -1;
+    }
+  }
+
+  FdContextManager(const FdContextManager &) = delete;
+
+  FdContextManager(FdContextManager &&) = delete;
+
+  ~FdContextManager() {}
 
  public:
-  static FdContextManager& GetInstance() {
+  static FdContextManager &GetInstance() {
     static FdContextManager x;
     return x;
   }
 
-  rpchook_t* GetContextByFd(int fd) {
-    rwMutex_.lock_shared();
-    if (fd < fdContexts_.size() && fdContexts_[fd] != nullptr) {
-      rpchook_t* result = fdContexts_[fd];
-      rwMutex_.unlock_shared();
-      return result;
+  rpchook_t *GetContextByFd(int fd) {
+    if (fd > -1 && fd < (int)sizeof(fdContexts_) / (int)sizeof(fdContexts_[0])) {
+      // if (fdContexts_[fd] == nullptr) {
+      //   rpchook_t* lp = (rpchook_t*)calloc(1, sizeof(rpchook_t));
+      //   lp->read_timeout.tv_sec = -1;
+      //   lp->write_timeout.tv_sec = -1;
+      //   fdContexts_[fd] = lp;
+      //   return lp;
+      // }
+      // return fdContexts_[fd];
+      if (fdContexts_[fd].domain == -1) {
+        memset(fdContexts_ + fd, 0, sizeof(fdContexts_[0]));
+        fdContexts_[fd].read_timeout.tv_sec = -1;
+        fdContexts_[fd].write_timeout.tv_sec = -1;
+      }
+      return fdContexts_ + fd;
     }
-    rwMutex_.unlock_shared();
-    
-    rwMutex_.lock();
-    if (fdContexts_.size() <= fd) [[unlikely]] {
-      fdContexts_.resize(static_cast<size_t>(fd) * 3 / 2, nullptr);
-    }
+    return nullptr;
+    // rwMutex_.lock_shared();
+    // if (fd < fdContexts_.size() && fdContexts_[fd] != nullptr) {
+    //   rpchook_t *result = fdContexts_[fd];
+    //   rwMutex_.unlock_shared();
+    //   return result;
+    // }
+    // rwMutex_.unlock_shared();
 
-    rpchook_t* result = new rpchook_t{0};
-    fdContexts_[fd] = result;
-    fdContexts_[fd]->read_timeout.tv_sec = -1;
-    fdContexts_[fd]->write_timeout.tv_sec = -1;
-    rwMutex_.unlock();
-    return result;
+    // rwMutex_.lock();
+    // if (fdContexts_.size() <= fd) [[unlikely]] {
+    //   fdContexts_.resize(static_cast<size_t>(fd) * 3 / 2, nullptr);
+    // }
+
+    // rpchook_t *result = new rpchook_t{0};
+    // fdContexts_[fd] = result;
+    // fdContexts_[fd]->read_timeout.tv_sec = -1;
+    // fdContexts_[fd]->write_timeout.tv_sec = -1;
+    // rwMutex_.unlock();
+    // return result;
   }
 
   void DelContextByFd(int fd) {
-    rwMutex_.lock();
-    if (fdContexts_.size() <= fd) {
-      rwMutex_.unlock();
-      return;
+    if (fd > -1 && fd < (int)sizeof(fdContexts_) / (int)sizeof(fdContexts_[0])) {
+      // rpchook_t* lp = fdContexts_[fd];
+      // if (lp != nullptr) {
+      //   fdContexts_[fd] = nullptr;
+      //   free(lp);
+      // }
+      fdContexts_[fd].domain = -1;
     }
-    delete fdContexts_[fd];
-    fdContexts_[fd] = nullptr;
-    rwMutex_.unlock();
+
+    // rwMutex_.lock();
+    // if (fdContexts_.size() <= fd) {
+    //   rwMutex_.unlock();
+    //   return;
+    // }
+    // delete fdContexts_[fd];
+    // fdContexts_[fd] = nullptr;
+    // rwMutex_.unlock();
   }
 
  private:
-  std::deque<rpchook_t*>  fdContexts_;
-  pio::fiber::shared_mutex   rwMutex_;
-
+  // std::deque<rpchook_t *> fdContexts_;
+  rpchook_t fdContexts_[102400];
+  // std::shared_mutex rwMutex_;
 };
 
 typedef int (*socket_pfn_t)(int domain, int type, int protocol);
@@ -95,7 +123,9 @@ typedef int (*connect_pfn_t)(int socket, const struct sockaddr *address,
 typedef int (*close_pfn_t)(int fd);
 
 typedef ssize_t (*read_pfn_t)(int fildes, void *buf, size_t nbyte);
+typedef ssize_t (*readv_pfn_t)(int __fd, const iovec *__iovec, int __count);
 typedef ssize_t (*write_pfn_t)(int fildes, const void *buf, size_t nbyte);
+typedef ssize_t (*writev_pfn_t)(int __fd, const iovec *__iovec, int __count);
 
 typedef ssize_t (*sendto_pfn_t)(int socket, const void *message, size_t length,
                                 int flags, const struct sockaddr *dest_addr,
@@ -141,7 +171,9 @@ static connect_pfn_t g_sys_connect_func =
 static close_pfn_t g_sys_close_func = (close_pfn_t)dlsym(RTLD_NEXT, "close");
 
 static read_pfn_t g_sys_read_func = (read_pfn_t)dlsym(RTLD_NEXT, "read");
+static readv_pfn_t g_sys_readv_func = (readv_pfn_t)dlsym(RTLD_NEXT, "readv");
 static write_pfn_t g_sys_write_func = (write_pfn_t)dlsym(RTLD_NEXT, "write");
+static writev_pfn_t g_sys_writev_func = (writev_pfn_t)dlsym(RTLD_NEXT, "writev");
 
 static sendto_pfn_t g_sys_sendto_func =
     (sendto_pfn_t)dlsym(RTLD_NEXT, "sendto");
@@ -197,8 +229,13 @@ int socket(int domain, int type, int protocol) {
   return fd;
 }
 
+extern thread_local bool isaccept;
+
 int accept(int fd, struct sockaddr *addr, socklen_t *len) {
-  HOOK_SYS_FUNC(accept);
+  if (!g_sys_accept_func) { 
+    g_sys_accept_func = (accept_pfn_t)dlsym(((void *) -1l), "accept");
+    isaccept = true;
+  }
   if (!pio::this_fiber::co_self()->IsHooked()) {
     return g_sys_accept_func(fd, addr, len);
   }
@@ -211,8 +248,10 @@ int accept(int fd, struct sockaddr *addr, socklen_t *len) {
     return cli;
   }
 
-  int timeout = lp->read_timeout.tv_sec == -1 ? -1 :
-      (lp->read_timeout.tv_sec * 1000) + (lp->read_timeout.tv_usec / 1000);
+  int timeout = lp->read_timeout.tv_sec == -1
+                    ? -1
+                    : (lp->read_timeout.tv_sec * 1000) +
+                          (lp->read_timeout.tv_usec / 1000);
   struct pollfd pf = {0};
   pf.fd = fd;
   pf.events = (POLLIN | POLLERR | POLLHUP);
@@ -298,8 +337,90 @@ int close(int fd) {
   return ret;
 }
 
+// ssize_t readv(int __fd, const iovec *__iovec, int __count) {}
+// ssize_t writev(int __fd, const iovec *__iovec, int __count)
+
+ssize_t readv1(int fd, const iovec *iovec, int count) {
+  HOOK_SYS_FUNC(readv);
+  // printf("hooking readv\n");
+
+  if (!pio::this_fiber::co_self()->IsHooked()) {
+    return g_sys_readv_func(fd, iovec, count);
+  }
+  rpchook_t *lp = FdContextManager::GetInstance().GetContextByFd(fd);
+
+  if (!lp || (O_NONBLOCK & lp->user_flag)) {
+    ssize_t ret = g_sys_readv_func(fd, iovec, count);
+    return ret;
+  }
+  int timeout = lp->read_timeout.tv_sec == -1
+                    ? -1
+                    : (lp->read_timeout.tv_sec * 1000) +
+                          (lp->read_timeout.tv_usec / 1000);
+
+  struct pollfd pf = {0};
+  pf.fd = fd;
+  pf.events = (POLLIN | POLLERR | POLLHUP);
+
+  int pollret = poll(&pf, 1, timeout);
+
+  ssize_t readret = g_sys_readv_func(fd, iovec, count);
+
+  return readret;
+}
+
+ssize_t writev1(int fd, const iovec *iovec, int count) {
+  HOOK_SYS_FUNC(writev);
+  // printf("hooking writev\n");
+
+  if (!pio::this_fiber::co_self()->IsHooked()) {
+    return g_sys_writev_func(fd, iovec, count);
+  }
+  rpchook_t *lp = FdContextManager::GetInstance().GetContextByFd(fd);
+
+  if (!lp || (O_NONBLOCK & lp->user_flag)) {
+    ssize_t ret = g_sys_writev_func(fd, iovec, count);
+    return ret;
+  }
+  size_t wrotelen = 0;
+  int timeout = lp->write_timeout.tv_sec == -1
+                    ? -1
+                    : (lp->write_timeout.tv_sec * 1000) +
+                          (lp->write_timeout.tv_usec / 1000);
+
+  ssize_t writeret =
+      g_sys_writev_func(fd, iovec, count);
+
+  // if (writeret == 0) {
+  //   return writeret;
+  // }
+
+  // if (writeret > 0) {
+  //   wrotelen += writeret;
+  // }
+  // while (wrotelen < nbyte) {
+  //   struct pollfd pf = {0};
+  //   pf.fd = fd;
+  //   pf.events = (POLLOUT | POLLERR | POLLHUP);
+  //   poll(&pf, 1, timeout);
+
+  //   writeret =
+  //       g_sys_write_func(fd, (const char *)buf + wrotelen, nbyte - wrotelen);
+
+  //   if (writeret <= 0) {
+  //     break;
+  //   }
+  //   wrotelen += writeret;
+  // }
+  // if (writeret <= 0 && wrotelen == 0) {
+  //   return writeret;
+  // }
+  return writeret;
+}
+
 ssize_t read(int fd, void *buf, size_t nbyte) {
   HOOK_SYS_FUNC(read);
+  // printf("hooking read\n");
 
   if (!pio::this_fiber::co_self()->IsHooked()) {
     return g_sys_read_func(fd, buf, nbyte);
@@ -310,8 +431,10 @@ ssize_t read(int fd, void *buf, size_t nbyte) {
     ssize_t ret = g_sys_read_func(fd, buf, nbyte);
     return ret;
   }
-  int timeout = lp->read_timeout.tv_sec == -1 ? -1 :
-      (lp->read_timeout.tv_sec * 1000) + (lp->read_timeout.tv_usec / 1000);
+  int timeout = lp->read_timeout.tv_sec == -1
+                    ? -1
+                    : (lp->read_timeout.tv_sec * 1000) +
+                          (lp->read_timeout.tv_usec / 1000);
 
   struct pollfd pf = {0};
   pf.fd = fd;
@@ -338,8 +461,10 @@ ssize_t write(int fd, const void *buf, size_t nbyte) {
     return ret;
   }
   size_t wrotelen = 0;
-  int timeout = lp->write_timeout.tv_sec == -1 ? -1 :
-      (lp->write_timeout.tv_sec * 1000) + (lp->write_timeout.tv_usec / 1000);
+  int timeout = lp->write_timeout.tv_sec == -1
+                    ? -1
+                    : (lp->write_timeout.tv_sec * 1000) +
+                          (lp->write_timeout.tv_usec / 1000);
 
   ssize_t writeret =
       g_sys_write_func(fd, (const char *)buf + wrotelen, nbyte - wrotelen);
@@ -395,15 +520,18 @@ ssize_t sendto(int socket, const void *message, size_t length, int flags,
   ssize_t ret =
       g_sys_sendto_func(socket, message, length, flags, dest_addr, dest_len);
   if (ret < 0 && EAGAIN == errno) {
-    int timeout = lp->write_timeout.tv_sec == -1 ? -1 :
-        (lp->write_timeout.tv_sec * 1000) + (lp->write_timeout.tv_usec / 1000);
+    int timeout = lp->write_timeout.tv_sec == -1
+                      ? -1
+                      : (lp->write_timeout.tv_sec * 1000) +
+                            (lp->write_timeout.tv_usec / 1000);
 
     struct pollfd pf = {0};
     pf.fd = socket;
     pf.events = (POLLOUT | POLLERR | POLLHUP);
     poll(&pf, 1, timeout);
 
-    ret = g_sys_sendto_func(socket, message, length, flags, dest_addr, dest_len);
+    ret =
+        g_sys_sendto_func(socket, message, length, flags, dest_addr, dest_len);
   }
   return ret;
 }
@@ -422,8 +550,10 @@ ssize_t recvfrom(int socket, void *buffer, size_t length, int flags,
                                address_len);
   }
 
-  int timeout = lp->read_timeout.tv_sec == -1 ? -1 :
-      (lp->read_timeout.tv_sec * 1000) + (lp->read_timeout.tv_usec / 1000);
+  int timeout = lp->read_timeout.tv_sec == -1
+                    ? -1
+                    : (lp->read_timeout.tv_sec * 1000) +
+                          (lp->read_timeout.tv_usec / 1000);
 
   struct pollfd pf = {0};
   pf.fd = socket;
@@ -447,8 +577,10 @@ ssize_t send(int socket, const void *buffer, size_t length, int flags) {
     return g_sys_send_func(socket, buffer, length, flags);
   }
   size_t wrotelen = 0;
-  int timeout = lp->write_timeout.tv_sec == -1 ? -1 :
-      (lp->write_timeout.tv_sec * 1000) + (lp->write_timeout.tv_usec / 1000);
+  int timeout = lp->write_timeout.tv_sec == -1
+                    ? -1
+                    : (lp->write_timeout.tv_sec * 1000) +
+                          (lp->write_timeout.tv_usec / 1000);
 
   ssize_t writeret = g_sys_send_func(socket, buffer, length, flags);
   if (writeret == 0) {
@@ -478,7 +610,6 @@ ssize_t send(int socket, const void *buffer, size_t length, int flags) {
   return wrotelen;
 }
 
-
 ssize_t recv(int socket, void *buffer, size_t length, int flags) {
   HOOK_SYS_FUNC(recv);
 
@@ -490,8 +621,10 @@ ssize_t recv(int socket, void *buffer, size_t length, int flags) {
   if (!lp || (O_NONBLOCK & lp->user_flag)) {
     return g_sys_recv_func(socket, buffer, length, flags);
   }
-  int timeout = lp->read_timeout.tv_sec == -1 ? -1 :
-      (lp->read_timeout.tv_sec * 1000) + (lp->read_timeout.tv_usec / 1000);
+  int timeout = lp->read_timeout.tv_sec == -1
+                    ? -1
+                    : (lp->read_timeout.tv_sec * 1000) +
+                          (lp->read_timeout.tv_usec / 1000);
 
   struct pollfd pf = {0};
   pf.fd = socket;
@@ -504,8 +637,8 @@ ssize_t recv(int socket, void *buffer, size_t length, int flags) {
   return readret;
 }
 
-extern int co_poll_inner(struct pollfd fds[], nfds_t nfds,
-                         int timeout, poll_pfn_t pollfunc);
+extern int co_poll_inner(struct pollfd fds[], nfds_t nfds, int timeout,
+                         poll_pfn_t pollfunc);
 
 int poll(struct pollfd fds[], nfds_t nfds, int timeout) {
   HOOK_SYS_FUNC(poll);
@@ -535,8 +668,7 @@ int poll(struct pollfd fds[], nfds_t nfds, int timeout) {
   if (nfds_merge == nfds || nfds == 1) {
     ret = co_poll_inner(fds, nfds, timeout, g_sys_poll_func);
   } else {
-    ret = co_poll_inner(fds_merge, nfds_merge, timeout,
-                        g_sys_poll_func);
+    ret = co_poll_inner(fds_merge, nfds_merge, timeout, g_sys_poll_func);
     if (ret > 0) {
       for (size_t i = 0; i < nfds; i++) {
         it = m.find(fds[i].fd);
@@ -675,7 +807,8 @@ int fcntl(int fildes, int cmd, ...) {
 //       stCoSysEnv_t name = {(char *)n, 0};
 
 //       stCoSysEnv_t *e = (stCoSysEnv_t *)bsearch(&name, arr->data, arr->cnt,
-//                                                 sizeof(name), co_sysenv_comp);
+//                                                 sizeof(name),
+//                                                 co_sysenv_comp);
 
 //       if (e) {
 //         if (overwrite || !e->value) {

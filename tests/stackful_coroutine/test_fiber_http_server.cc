@@ -10,7 +10,7 @@
 #include <iostream>
 
 #include "fiber/fiber.h"
-#include "http/http_conn.h"
+#include "http/httpconn.h"
 
 using namespace pio;
 using namespace pio::fiber;
@@ -83,33 +83,59 @@ void HttpServer() {
       char buf[32];
       memset(buf, 0, 32);
       inet_ntop(AF_INET, &addr.sin_addr, buf, 32);
-      printf("%s\n", buf);
     }
 
-    go[clifd] {
-      printf("new session at: [%d|%p]\n", this_fiber::get_thread_id(),
-             this_fiber::co_self());
-      while (true) {
-        HttpConn conn = HttpConn();
-        HttpConn().init();
-        int n = read(clifd, conn.read_buf_, sizeof(conn.read_buf_));
-        if (n == 0) {
-          close(clifd);
-          break;
-        }
-        conn.Process();
+    go[clifd, addr] {
+      HttpConn conn = HttpConn();
+      conn.init(clifd, addr);
+      timeval timeout;
+      timeout.tv_sec = 60;
+      timeout.tv_usec = 0;
+      setsockopt(clifd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+      do {
+        do {
+          int ret = -1;
+          int readErrno = 0;
+          ret = conn.read(&readErrno);
+          // printf("ret=%d\n", ret);
+          if (ret <= 0 && readErrno != EAGAIN) {
+            conn.Close();
+            return;
+          }
+        } while (!conn.process());
+        do {
+          int ret = -1;
+          int writeErrno = 0;
+          ret = conn.write(&writeErrno);
+          if (ret <= 0 && writeErrno != EAGAIN) {
+            conn.Close();
+            return;
+          }
+        } while (conn.ToWriteBytes() != 0);
 
-        write(clifd, conn.write_buf_, n);
-      }
+      } while (conn.IsKeepAlive());
+
+      conn.Close();
     };
   }
 
   close(listenfd);
 }
 
+char* srcDir_;
+
+__attribute__((destructor)) void after(void)
+{
+  free(srcDir_);
+}
+
+#include <iostream>
 int main(int argc, const char *agrv[]) {
   signal(SIGQUIT, sighdr);
-
+  srcDir_ = getcwd(nullptr, 256);
+  strncat(srcDir_, "/resources/", 16);
+  HttpConn::userCount = 0;
+  HttpConn::srcDir = srcDir_;
   go HttpServer;
 
   return 0;
